@@ -130,8 +130,9 @@ namespace LabelingTools
 			TRunSize bot;	// Bottom row bl and br
 		} TRun;
 
-		vector<TRun> runs_;
-		uint width_, height_;
+		TRun *runs_;
+		uint *runNum_;
+		uint width_, height_, size_;
 		const TImage *pixels_; 
 		TImage *labels_;
 

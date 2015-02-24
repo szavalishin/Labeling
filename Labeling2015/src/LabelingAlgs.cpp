@@ -345,49 +345,60 @@ namespace LabelingTools
 		Scan();
 		SetFinalLabels();
 
-		runs_.clear();
+		delete runs_;
+		delete runNum_;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
 
 	void TRunEqivLabeling::InitRuns(void)
 	{
-		runs_.resize(height_ * (width_ >> 1), { 0, 0, 0, { 1, 0 }, {1, 0} });
+		size_ = height_ * (width_ >> 1);
+
+		runs_ = new TRun[size_];
+		runNum_ = new uint[height_];
+
+		memset(runNum_, 0, sizeof(uint) * height_);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
 
 	void TRunEqivLabeling::FindRuns(void)
 	{		
-		#pragma omp parallel for
+#		pragma omp parallel for
 		for (int row = 0; row < height_; ++row)
 		{
 			uint pixPos = row * width_;
 			uint rowPos = row * (width_ >> 1);
 
 			TPixel *curPix = reinterpret_cast<TPixel*>(pixels_->data) + pixPos;
-			TRun *curRun = runs_.data() + rowPos;
+			TRun *curRun = runs_ + row * (width_ >> 1);
 
-			for (uint pos = 0, runPos = 0; pos < width_; )
+			uint runPos = 0;
+			curRun->lb = 0;
+			for (uint pos = 0; pos < width_; ++pos)
 			{
 				if (*curPix) {
-					if (!curRun->lb) {
+					if (!curRun->lb) {						
 						curRun->lb = rowPos + ++runPos;
 						curRun->l = pos;
 					}
 					if (pos == width_ - 1) {
-						curRun->r = pos;
+						curRun->r = pos;						
+						++curRun;
+						curRun->lb = 0;
 					}
 				}
 				else {
 					if (curRun->lb) {
-						curRun->r = pos - 1;
+						curRun->r = pos - 1;						
 						++curRun;
+						curRun->lb = 0;
 					}
 				}
-				++curPix;
-				++pos;
+				++curPix;				
 			}
+			runNum_[row] = runPos;			
 		}
 	}
 
@@ -407,6 +418,8 @@ namespace LabelingTools
 	void TRunEqivLabeling::FindNeibRuns(TRun *curRun, TRunSize *neibSize, const TRun *neibRow, uint *neibPos, uint runWidth)
 	{
 		int noNeib = 0;
+		neibSize->l = 1;
+		neibSize->r = 0;
 
 		while (*neibPos < runWidth && !noNeib)
 		{
@@ -442,9 +455,9 @@ namespace LabelingTools
 	void TRunEqivLabeling::FindNeibRuns(void)
 	{		
 		uint runWidth = width_ >> 1;
-		TRun *runs = runs_.data();
-
-		#pragma omp parallel for
+		TRun *runs = runs_;
+		
+#		pragma omp parallel for
 		for (int row = 0; row < height_; ++row)
 		{
 			TRun *curRun = runs + row * runWidth;
@@ -454,14 +467,20 @@ namespace LabelingTools
 			uint topPos = 0;
 			uint botPos = 0;
 
-			for (uint pos = 0; curRun->lb != 0 && pos < runWidth; ++pos)
+			for (uint pos = 0; pos < runNum_[row]; ++pos)
 			{
 				if (row > 0) {					
-					FindNeibRuns(curRun, &curRun->top, topRow, &topPos, runWidth);
+					FindNeibRuns(curRun, &curRun->top, topRow, &topPos, runNum_[row - 1]);
+				}else{
+					curRun->top.l = 1;
+					curRun->top.r = 0;
 				}
 
 				if (row < height_ - 1) {					
-					FindNeibRuns(curRun, &curRun->bot, botRow, &botPos, runWidth);
+					FindNeibRuns(curRun, &curRun->bot, botRow, &botPos, runNum_[row + 1]);
+				}else{
+					curRun->bot.l = 1;
+					curRun->bot.r = 0;
 				}
 
 				++curRun;
@@ -474,7 +493,7 @@ namespace LabelingTools
 	TLabel TRunEqivLabeling::MinRunLabel(uint pos)
 	{
 		TLabel minLabel = UINT_MAX;
-		TRun *runs = runs_.data();
+		TRun *runs = runs_;
 		TRun curRun = runs[pos];
 
 		if (curRun.top.l <= curRun.top.r) {
@@ -509,23 +528,26 @@ namespace LabelingTools
 	bool TRunEqivLabeling::ScanRuns(void)
 	{
 		bool noChanges = true;
-		TRun *runs = runs_.data();
-
-		#pragma omp parallel for
-		for (int pos = 0; pos < runs_.size(); ++pos)
+		TRun *runs = runs_;
+		
+#		pragma omp parallel for
+		for (int row = 0; row < height_; ++row)
 		{
-			uint runWidth = width_ >> 1;
-			TLabel label = runs[pos].lb;
+			for (int pos = 0; pos < runNum_[row]; ++pos)
+			{				
+				TLabel label = runs[row * (width_ >> 1) + pos].lb;
 
-			if (label)
-			{
-				TLabel minLabel = MinRunLabel(pos);
-
-				if (minLabel < label)
+				if (label)
 				{
-					TLabel tmpLabel = runs[label - 1].lb;
-					runs[label - 1].lb = min(tmpLabel, minLabel);
-					noChanges = false;
+					TLabel minLabel = MinRunLabel(row * (width_ >> 1) + pos);
+					
+					if (minLabel < label)
+					{
+						TLabel tmpLabel = runs[label - 1].lb;						
+
+						runs[label - 1].lb = min(tmpLabel, minLabel);
+						noChanges = false;
+					}
 				}
 			}
 		}
@@ -537,23 +559,26 @@ namespace LabelingTools
 
 	void TRunEqivLabeling::AnalyzeRuns(void)
 	{
-		TRun *runs = runs_.data();
+		TRun *runs = runs_;
 
-		#pragma omp parallel for
-		for (int pos = 0; pos < runs_.size(); ++pos)
+#		pragma omp parallel for
+		for (int row = 0; row < height_; ++row)
 		{
-			TRun *curRun = &runs[pos];
-			TLabel label = curRun->lb;			
+			for (int pos = 0; pos < runNum_[row]; ++pos)
+			{
+				TRun *curRun = &runs[row * (width_ >> 1) + pos];
+				TLabel label = curRun->lb;
 
-			if (label){
-				TLabel curLabel = runs[label - 1].lb;
-				while (curLabel != label)
-				{
-					label = runs[curLabel - 1].lb;
-					curLabel = runs[label - 1].lb;
+				if (label){
+					TLabel curLabel = runs[label - 1].lb;
+					while (curLabel != label)
+					{
+						label = runs[curLabel - 1].lb;
+						curLabel = runs[label - 1].lb;
+					}										
+
+					curRun->lb = label;
 				}
-
-				curRun->lb = label;
 			}
 		}
 	}
@@ -563,19 +588,21 @@ namespace LabelingTools
 	void TRunEqivLabeling::SetFinalLabels(void)
 	{
 		TLabel *labels = reinterpret_cast<TLabel*>(labels_->data);
-		TRun *runs = runs_.data();
+		TRun *runs = runs_;
 		uint runWidth = width_ >> 1;
 
-		#pragma omp parallel for
-		for (int run = 0; run < runs_.size(); ++run)
+#		pragma omp parallel for
+		for (int row = 0; row < height_; ++row)
 		{
-			uint row = run / runWidth * width_;
-			TRun curRun = runs[run];
+			for (int run = 0; run < runNum_[row]; ++run)
+			{				
+				TRun curRun = runs[row * (width_ >> 1) + run];
 
-			if (curRun.lb) {
-				for (uint i = row + curRun.l; i < row + curRun.r + 1; ++i)
-				{
-					labels[i] = curRun.lb;
+				if (curRun.lb) {
+					for (uint i = curRun.l; i < curRun.r + 1; ++i)
+					{
+						labels[row * width_ + i] = curRun.lb;
+					}
 				}
 			}
 		}

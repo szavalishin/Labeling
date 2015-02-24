@@ -6,6 +6,7 @@
 #include <iostream>
 #include <boost/filesystem.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <vector>
 #include <set>
 #include <list>
@@ -68,6 +69,41 @@ std::list<std::string> FindFiles(const std::string &path)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+TImage LabelsToRGB(const TImage &labels)
+{
+	TLabel maxLabel = 0;
+	for (size_t i = 0; i < labels.total(); ++i)
+	{
+		TLabel lb = labels.at<TLabel>(i);
+		if (lb > maxLabel) maxLabel = lb;
+	}
+	
+	vector<uchar[3]> colorMap(maxLabel + 1);
+	for (size_t i = 1; i < maxLabel + 1; ++i)
+	{
+		colorMap[i][0] = std::rand();
+		colorMap[i][1] = std::rand();
+		colorMap[i][2] = std::rand();
+	}
+
+	colorMap[0][0] = 0;
+	colorMap[0][1] = 0;
+	colorMap[0][2] = 0;
+
+	TImage rgb(labels.rows, labels.cols, CV_8UC3);
+
+	for (size_t i = 0; i < labels.total(); ++i)
+	{			
+		rgb.data[3 * i]     = colorMap[labels.at<TLabel>(i)][0];
+		rgb.data[3 * i + 1] = colorMap[labels.at<TLabel>(i)][1];
+		rgb.data[3 * i + 2] = colorMap[labels.at<TLabel>(i)][2];
+	}
+
+	return rgb;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 void ProcessImages(Options &opts)
 {
 	auto imgs = FindFiles(opts.inPath);
@@ -81,13 +117,15 @@ void ProcessImages(Options &opts)
 
 		TImage img = cv::imread(fName);		
 
-		cout << "Processing image " << ++count << "/" << imgs.size() << " (" << fileName.c_str() << ")\n";
+		cout << "Processing image " << ++count << "/" << imgs.size() << " (" << fileName.c_str() << ") ";// \n";
 
 		TTime imgTime;
 		img = ProcessImage(img, opts, imgTime);
 
-		cv::imwrite(opts.outPath + "/" + fileName, img);
+		cv::imwrite(opts.outPath + "/" + fileName, LabelsToRGB(img));
 		time += imgTime;
+
+		cout /*<< imgTime */<< "\n";
 	}
 
 	cout << "\nAverage processing time: " << float(time) / count / 1000 << " ms\n";
@@ -202,7 +240,7 @@ void Run(Options &opts)
 
 		if (is_directory(opts.outPath))
 		{
-			cv::imwrite(opts.outPath + "/" + fileName, im);
+			cv::imwrite(opts.outPath + "/" + fileName, LabelsToRGB(im));
 		}
 	}
 	else

@@ -21,7 +21,7 @@ namespace LabelingTools
 		THROW_IF(pixels.empty(), "ILabeling::Label : Input image is empty");
 
 		TImage binImg = RGB2Gray(pixels);
-		labels = cv::Mat(binImg.rows, binImg.cols, CV_32SC1);
+		labels = cv::Mat::zeros(binImg.rows, binImg.cols, CV_32SC1);
 
 		watch_.reset();
 		watch_.start();
