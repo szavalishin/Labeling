@@ -215,13 +215,11 @@ namespace LabelingTools
 
 		SetupThreads(threads);
 		InitMap(pixels, labels);
-
-		bool noChanges;
-		do
-		{
-			noChanges = Scan(labels, coh);
+		
+		while (true) {
+			if (Scan(labels, coh)) break;
 			Analyze(labels);			
-		} while (!noChanges);
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -342,12 +340,11 @@ namespace LabelingTools
 
 		SetupThreads(threads);
 		TSPixels sPixels = InitSPixels(pixels);
-	
-		bool noChanges;
-		do {
-			noChanges = Scan(sPixels);
+			
+		while (true) {
+			if (Scan(sPixels)) break;
 			Analyze(sPixels);
-		} while (!noChanges);
+		}
 
 		SetFinalLabels(pixels, labels, sPixels);
 	}
@@ -356,20 +353,19 @@ namespace LabelingTools
 
 	inline bool TestBit(const TPixel *pix, int px, int py, int xshift, int yshift, int w, int h)
 	{
-		if (px > -xshift && px < w - xshift && py > -yshift && py < h - yshift) {
-			return pix[px + xshift + (py + yshift) * w];
-		}
-		return false;
+		return pix[px + xshift + (py + yshift) * w];
+	}
+
+	inline ushort CheckNeibPixABC(bool C1, bool C2) {
+		return (C1 ? 3 : 0) | (C2 ? 0x18 : 0) | (C1 && C2) << 2;
+	}
+
+	inline ushort CheckNeibPixD(bool C1, bool C2) {
+		return (C1 ? 3 : 0) << 9 | (C2 ? 3 : 0) | (C1 && C2) << 11;
 	}
 
 	TLabelEquivalenceX2::TSPixels TLabelEquivalenceX2::InitSPixels(const TImage& pixels)
 	{
-		/*const char pixNeibShift[4][5][2] = { { { -1, 1 }, { -1, 0 }, { -1, 1 }, { 0, -1 }, { 1, -1 } },
-											 { { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 } },
-											 { { 1, -1 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } },
-											 { { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 } } };
-		const char blockOrder[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };*/
-
 		TSPixels sPixels(pixels.cols / 2, pixels.rows / 2);
 		int w = pixels.cols, h = pixels.rows;
 		TPixel *pix = pixels.data;
@@ -387,96 +383,40 @@ namespace LabelingTools
 				// 1 a b 6
 				// 0 d c 7
 				// B A 9 8
-				ushort testPattern = 0;				
-				if (pix[ppos        ]) testPattern  =  0x1F;
-				if (pix[ppos + 1    ]) testPattern |=  0x1F << 3;
-				if (pix[ppos + 1 + w]) testPattern |=  0x1F << 6;
-				if (pix[ppos     + w]) testPattern |= (0x1F << 9) | 0x3;
+				ushort testPattern = 0;
+				if (pix[ppos])         testPattern  = CheckNeibPixABC(px, py);
+				if (pix[ppos + 1])     testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
+				if (pix[ppos + 1 + w]) testPattern |= CheckNeibPixABC(px + 2 < w, py + 2 < h) << 6;
+				if (pix[ppos + w])     testPattern |= CheckNeibPixD(py + 2 < h, px);
 
 				if (testPattern) {
 					sPix.lb = spos;
 
-					if ((testPattern & (1 << 0) && TestBit(pix, px, py, -1, 1, w, h)) ||
-						(testPattern & (1 << 1) && TestBit(pix, px, py, -1, 0, w, h)))
+					if ((testPattern & 1 << 0 && TestBit(pix, px, py, -1, 1, w, h)) ||
+						(testPattern & 1 << 1 && TestBit(pix, px, py, -1, 0, w, h)))
 						sPix.conn = 1;
-					if ((testPattern & (1 << 2) && TestBit(pix, px, py, -1, -1, w, h)))
+					if ((testPattern & 1 << 2 && TestBit(pix, px, py, -1, -1, w, h)))
 						sPix.conn |= 1 << 1;
-					if ((testPattern & (1 << 3) && TestBit(pix, px, py, 0, -1, w, h)) ||
-						(testPattern & (1 << 4) && TestBit(pix, px, py, 1, -1, w, h)))
+					if ((testPattern & 1 << 3 && TestBit(pix, px, py, 0, -1, w, h)) ||
+						(testPattern & 1 << 4 && TestBit(pix, px, py, 1, -1, w, h)))
 						sPix.conn |= 1 << 2;
-					if ((testPattern & (1 << 5) && TestBit(pix, px, py, 2, -1, w, h)))
+					if ((testPattern & 1 << 5 && TestBit(pix, px, py, 2, -1, w, h)))
 						sPix.conn |= 1 << 3;
-					if ((testPattern & (1 << 6) && TestBit(pix, px, py, 2, 0, w, h)) ||
-						(testPattern & (1 << 7) && TestBit(pix, px, py, 2, 1, w, h)))
+					if ((testPattern & 1 << 6 && TestBit(pix, px, py, 2, 0, w, h)) ||
+						(testPattern & 1 << 7 && TestBit(pix, px, py, 2, 1, w, h)))
 						sPix.conn |= 1 << 4;
-					if ((testPattern & (1 << 8) && TestBit(pix, px, py, 2, 2, w, h)))
+					if ((testPattern & 1 << 8 && TestBit(pix, px, py, 2, 2, w, h)))
 						sPix.conn |= 1 << 5;
-					if ((testPattern & (1 << 9) && TestBit(pix, px, py, 1, 2, w, h)) ||
-						(testPattern & (1 << 10) && TestBit(pix, px, py, 0, 2, w, h)))
+					if ((testPattern & 1 << 9 && TestBit(pix, px, py, 1, 2, w, h)) ||
+						(testPattern & 1 << 10 && TestBit(pix, px, py, 0, 2, w, h)))
 						sPix.conn |= 1 << 6;
-					if ((testPattern & (1 << 11) && TestBit(pix, px, py, -1, 2, w, h)))
+					if ((testPattern & 1 << 11 && TestBit(pix, px, py, -1, 2, w, h)))
 						sPix.conn |= 1 << 7;
 				}
-				
+
 				sPixels[spos] = sPix;
 			}
 		}
-
-		//#pragma omp parallel for
-		/*for (long spi = 0; spi < sPixels.w * sPixels.h; ++spi)
-		{
-			const size_t spx = spi % sPixels.w;
-			const size_t spy = spi / sPixels.w;
-
-			TSPixel sPix;
-			sPix.lb = 0;
-
-			const size_t pos = spy * 2 * imWidth + spx * 2;
-			for (int i = 0; i < 8; ++i) sPix.conn[i] = 0;
-
-			int blockNeib = 1;
-
-			for (int i = 0; i < 4; ++i) {
-				const size_t curPos = pos + blockOrder[i][0] + blockOrder[i][1] * imWidth;
-
-				--blockNeib;
-				if (curPos < pixels.total() &&
-					pixels.at<TPixel>(curPos)) {
-					sPix.lb = 1;
-
-					for (int pixNeib = 0; pixNeib < 5; ++pixNeib) {
-						if (sPix.conn[blockNeib])
-						{
-							++blockNeib;
-							continue;
-						}
-
-						int xNeib = curPos % imWidth + pixNeibShift[i][pixNeib][0];
-						int yNeib = curPos / imWidth + pixNeibShift[i][pixNeib][1];
-						
-						if (!(xNeib > -1 && yNeib > -1 && xNeib < pixels.cols && yNeib < pixels.rows))
-							continue;
-						
-						size_t neibPixPos = xNeib + yNeib * imWidth;							
-
-						if (pixels.at<TPixel>(neibPixPos)) {							
-							sPix.conn[blockNeib] = 1;
-						}
-						++blockNeib;
-					}
-				}
-				else {
-					blockNeib += 2;
-				}
-			}
-
-			size_t spos = spx + spy * sPixels.w;
-
-			if (sPix.lb)
-				sPix.lb = spos;
-
-			sPixels[spos] = sPix;		
-		}		*/
 
 		return sPixels;
 	}
@@ -512,19 +452,11 @@ namespace LabelingTools
 
 	inline TLabel TLabelEquivalenceX2::GetBlockLabel(const TSPixel *sPix, bool conn, int px, int py, int xshift, int yshift, int w, int h)
 	{
-		if (conn) {			
-			if (px > -xshift && px < w - xshift && py > -yshift && py < h - yshift) {
-				return sPix[px + xshift + (py + yshift) * w].lb;
-			}
-		}
-
-		return UINT_MAX;
+		return conn ? sPix[px + xshift + (py + yshift) * w].lb : UINT_MAX;
 	}
 
 	TLabel TLabelEquivalenceX2::MinSPixLabel(const TSPixels& sPixels, int x, int y)
-	{
-		//const char blockShift[8][2] = { { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } };
-		
+	{		
 		TLabel minLabel;
 		const TSPixel *sPix = sPixels.data.data();
 		uchar conn = sPix[x + y * sPixels.w].conn;
@@ -537,25 +469,7 @@ namespace LabelingTools
 			min(GetBlockLabel(sPix, conn & (1 << 4), x, y, 1, 0, w, h),
 			min(GetBlockLabel(sPix, conn & (1 << 5), x, y, 1, 1, w, h),
 			min(GetBlockLabel(sPix, conn & (1 << 6), x, y, 0, 1, w, h),
-			GetBlockLabel(sPix, conn & (1 << 7), x, y, -1, 1, w, h))))))));
-
-		/*for (int i = 0; i < 8; ++i) {
-			if (conn & (1 << i))
-			{
-				int xBlock = x + blockShift[i][0];
-				int yBlock = y + blockShift[i][1];
-
-				if (!(xBlock > -1 && xBlock > -1 && xBlock < sPixels.w && yBlock < sPixels.h))
-					continue;
-
-				size_t neibBlockPos = xBlock + yBlock * sPixels.w;
-
-				TLabel neibLb = sPixels[neibBlockPos].lb;
-
-				if (neibLb)
-					minLabel = min(minLabel, neibLb);
-			}
-		}*/
+			GetBlockLabel(sPix, conn & (1 << 7), x, y, -1, 1, w, h))))))));		
 
 		return minLabel;
 	}
@@ -793,12 +707,10 @@ namespace LabelingTools
 
 	void TRunEqivLabeling::Scan(void)
 	{
-		bool noChanges;
-		do
-		{
-			noChanges = ScanRuns();
+		while (true) {
+			if (ScanRuns()) break;
 			AnalyzeRuns();
-		} while (!noChanges);
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -1005,16 +917,17 @@ namespace LabelingTools
 		THROW_IF_OCL(clError, "TOCLLabelDistribution::DoOCLLabel");
 
 		unsigned int iter = 0;
-		do
-		{
+		while (true) {
 			noChanges[0] = 1;
 			noChanges.Push();
 
 			clError |= clEnqueueNDRangeKernel(State.queue, scanKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
-			clError |= clEnqueueNDRangeKernel(State.queue, analizeKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
 
 			noChanges.Pull();
-		} while (!noChanges[0]);
+			if (noChanges[0]) break;
+
+			clError |= clEnqueueNDRangeKernel(State.queue, analizeKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -1094,16 +1007,17 @@ namespace LabelingTools
 		clError |= clSetKernelArg(analyzeKernel, 0, sizeof(cl_mem), (void*)&sPixels);// ->buffer);
 		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::LabelSPixels");
 		
-		do
-		{
+		while (true) {
 			noChanges[0] = 1;
 			noChanges.Push();
 
 			clError |= clEnqueueNDRangeKernel(State.queue, scanKernel, 2, NULL, scanWorkSize, NULL, 0, NULL, NULL);
-			clError |= clEnqueueNDRangeKernel(State.queue, analyzeKernel, 1, NULL, analyzeWorkSize, NULL, 0, NULL, NULL);
-			
+
 			noChanges.Pull();
-		} while (!noChanges[0]);
+			if (noChanges[0]) break;
+
+			clError |= clEnqueueNDRangeKernel(State.queue, analyzeKernel, 1, NULL, analyzeWorkSize, NULL, 0, NULL, NULL);					
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -1275,17 +1189,19 @@ namespace LabelingTools
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::Scan");
 
 		size_t workSize = height;
-		do{
+		while (true) {
 			noChanges[0] = 1;
 			noChanges.Push();
 
-			clError = clEnqueueNDRangeKernel(State.queue, scanKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
+			clError = clEnqueueNDRangeKernel(State.queue, scanKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);	
+
+			noChanges.Pull();
+			if (noChanges[0]) break;
+
 			clError |= clEnqueueNDRangeKernel(State.queue, analizeKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
 			
-			THROW_IF_OCL(clError, "TOCLRunEquivLabeling::Scan");
-			
-			noChanges.Pull();
-		} while (!noChanges[0]);
+			THROW_IF_OCL(clError, "TOCLRunEquivLabeling::Scan");					
+		}
 
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::Scan");
 	}
