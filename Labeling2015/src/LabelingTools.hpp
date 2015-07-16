@@ -45,7 +45,7 @@ namespace LabelingTools
 	{
 		COH_4,
 		COH_8,
-		COH_MAX
+		COH_DEFAULT
 	};
 
 	const char MAX_THREADS = 0;
@@ -60,14 +60,14 @@ namespace LabelingTools
 		virtual ~ILabeling(void) = default;
 
 		// Call to start labeling
-		virtual TTime Label(const TImage& pixels, TImage& labels, char threads = MAX_THREADS, TCoherence coh = TCoherence::COH_4);
+		virtual TTime Label(const TImage& pixels, TImage& labels, char threads = MAX_THREADS, TCoherence coh = TCoherence::COH_DEFAULT);
 
 		TImage RGB2Gray(const TImage& img) const;
 
 	protected:
 		StopWatchWin watch_;
 
-		virtual void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) = 0; //labeling itself
+		virtual void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) = 0; // Labeling itself
 		void SetupThreads(char threadNum); //threads setup
 	};
 
@@ -104,7 +104,7 @@ namespace LabelingTools
 		void Init(cl_device_type deviceType, const std::string& buildParams, const std::string& srcFileName);
 
 		// Call to start labeling
-		virtual TTime Label(const TImage& pixels, TImage& labels, char threads = MAX_THREADS, TCoherence coh = TCoherence::COH_4) override;
+		virtual TTime Label(const TImage& pixels, TImage& labels, char threads = MAX_THREADS, TCoherence coh = TCoherence::COH_DEFAULT) override;
 		
 		// Destructor
 		~IOCLLabeling(void);

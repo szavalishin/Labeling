@@ -4,6 +4,13 @@
 typedef uchar TPixel;
 typedef uint  TLabel;
 
+typedef enum TCoherence
+{
+	COH_4,
+	COH_8,
+	COH_DEFAULT
+} TCoherence;
+
 TPixel GetPixel(__global TPixel *pix, size_t pos, uint maxSize) {
 	return pos && pos < maxSize ? pix[pos] : 0;
 }
@@ -22,12 +29,22 @@ TLabel MinLabel(TLabel lb1, TLabel lb2)
 	return lb ? lb : UINT_MAX;
 }
 
-TLabel MinNWSELabel(__global TLabel *labels, size_t pos, uint width, uint maxSize)
+TLabel MinNWSELabel(__global TLabel *lb, size_t lbPos, uint width, uint maxPos, TCoherence coh)
 {
-	 return MinLabel(GetLabel(labels, pos -     1, maxSize),
-			MinLabel(GetLabel(labels, pos - width, maxSize),
-			MinLabel(GetLabel(labels, pos + width, maxSize),
-					 GetLabel(labels, pos +     1, maxSize))));
+	if (coh == COH_8)
+		return MinLabel(GetLabel(lb, lbPos - 1, maxPos),
+			MinLabel(GetLabel(lb, lbPos - width, maxPos),
+			MinLabel(GetLabel(lb, lbPos + width, maxPos),
+			MinLabel(GetLabel(lb, lbPos - 1 - width, maxPos),
+			MinLabel(GetLabel(lb, lbPos + 1 + width, maxPos),
+			MinLabel(GetLabel(lb, lbPos - 1 + width, maxPos),
+			MinLabel(GetLabel(lb, lbPos + 1 - width, maxPos),
+			GetLabel(lb, lbPos + 1, maxPos))))))));
+	else
+		return MinLabel(GetLabel(lb, lbPos - 1, maxPos),
+			MinLabel(GetLabel(lb, lbPos - width, maxPos),
+			MinLabel(GetLabel(lb, lbPos + width, maxPos),
+			GetLabel(lb, lbPos + 1, maxPos))));
 }
 
 #endif /* OCL_COMMONS_CL_ */

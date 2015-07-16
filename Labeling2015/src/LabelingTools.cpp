@@ -37,13 +37,13 @@ namespace LabelingTools
 
 	TImage ILabeling::RGB2Gray(const TImage& img) const
 	{
-		auto binImg = img;
+		TImage binImg = img;
 
-		if (binImg.channels() > 1)
+		if (img.channels() > 1)
 			cv::cvtColor(binImg, binImg, cv::COLOR_RGB2GRAY);
-
+		
 		cv::threshold(binImg, binImg, cv::THRESH_OTSU, 255, CV_8UC1);
-
+		
 		return binImg;
 	}
 
@@ -108,10 +108,10 @@ namespace LabelingTools
 
 		memset(&oclLabels.Buffer()[0], 0, sizeof(oclLabels.Buffer()[0]) * oclLabels.Buffer().size());
 		oclLabels.Push();
-
-		memcpy(oclPixels.Buffer().data(), pixels.data, sizeof(TPixel) * binImg.total());
+		
+		memcpy(oclPixels.Buffer().data(), binImg.data, sizeof(TPixel) * binImg.total());
 		oclPixels.Push();
-
+		
 		watch_.reset();
 		watch_.start();
 
@@ -123,7 +123,7 @@ namespace LabelingTools
 
 		oclLabels.Pull();
 		memcpy(labels.data, oclLabels.Buffer().data(), sizeof(TLabel) * labels.total());
-
+		
 		return watch_.getTime() * 1000;
 	}
 

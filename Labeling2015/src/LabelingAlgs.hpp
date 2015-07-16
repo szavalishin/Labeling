@@ -7,6 +7,8 @@
 #define LABELING_ALGS_HPP_
 
 #include "LabelingTools.hpp"
+#include <memory>
+#include <vector>
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -102,12 +104,48 @@ namespace LabelingTools
 		virtual void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) override;
 
 		virtual void InitMap(const TImage& pixels, TImage& labels);
-		virtual bool Scan(TImage& labels);
+		virtual bool Scan(TImage& labels, TCoherence coh);
 		virtual void Analyze(TImage& labels);
 
 		inline TLabel MinLabel(TLabel lb1, TLabel lb2) const;
-		inline TLabel MinNWSELabel(const TLabel* labels, uint pos, uint width, uint maxPos) const;
+		inline TLabel MinNWSELabel(const TLabel* labels, uint pos, uint width, uint maxPos, TCoherence coh) const;
 		inline TLabel GetLabel(const TLabel* labels, uint pos, uint maxPos) const;
+	};
+
+	///////////////////////////////////////////////////////////////////////////////
+	// TLabelEquivalenceX2 :: OpenMP Label Equivalence X2 algorithm
+	///////////////////////////////////////////////////////////////////////////////
+
+	typedef struct
+	{
+		TLabel lb;		// Super pixel label
+		char conn;		// Super pixel neighbor connectivity:
+						// 1 2 3
+						// 0 x 4
+						// 7 6 5
+	} TSPixel;
+
+	class TLabelEquivalenceX2 : public ILabeling
+	{	
+	private:				
+		struct TSPixels {
+			std::vector<TSPixel> data;
+			size_t w, h;
+
+			TSPixels(size_t width, size_t height) : w(width), h(height), data(width * height) { /* Empty */ }
+			inline TSPixel& operator[](size_t pos) { return const_cast<TSPixel&>(static_cast<const TSPixels&>(*this).operator[](pos)); }
+			inline const TSPixel& operator[](size_t pos) const { return data[pos]; }
+		};
+
+		virtual TSPixels InitSPixels(const TImage& pixels);
+		virtual bool Scan(TSPixels& sPixels);
+		virtual void Analyze(TSPixels& sPixels);
+		virtual void SetFinalLabels(const TImage& pixels, TImage& labels, const TSPixels& sPixels);
+
+		inline TLabel MinSPixLabel(const TSPixels& sPixels, int x, int y);
+		inline TLabel GetBlockLabel(const TSPixel *sPix, bool conn, int px, int py, int xshift, int yshift, int w, int h);
+
+		void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) override;
 	};
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -116,7 +154,7 @@ namespace LabelingTools
 
 	class TRunEqivLabeling : public ILabeling
 	{
-	private:
+	private:		
 		typedef struct
 		{
 			cl_uint l, r;	// Left and right run positions
@@ -192,6 +230,46 @@ namespace LabelingTools
 	};
 
 	///////////////////////////////////////////////////////////////////////////////
+	// TOCLLabelEquivalenceX2 :: OCL Label Equivalence X2 algorithm
+	///////////////////////////////////////////////////////////////////////////////
+
+	class TOCLLabelEquivalenceX2 : public IOCLLabeling
+	{
+	public:
+		TOCLLabelEquivalenceX2(bool runOnGPU = true);
+
+	private:
+		typedef struct
+		{
+			TLabel lb;		// Super pixel label
+			char conn[8];	// Super pixel neighbor connectivity
+		} TSPixel;
+
+		cl_kernel initKernel,
+				  scanKernel,
+				  analyzeKernel,
+				  setFinalLabelsKernel;
+
+		cl_mem sPixels;
+		//TOCLBuffer<TSPixel> *sPixels;
+
+		TOCLBuffer<TPixel> *pix;
+		TOCLBuffer<TLabel> *lb;
+
+		unsigned int imgWidth, imgHeight, spWidth, spHeight;
+
+		virtual void InitKernels(void) override;
+		virtual void FreeKernels(void) override;
+
+		void InitSPixels(TCoherence coh);
+		void LabelSPixels(void);
+		void SetFinalLabels(void);
+
+		void DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
+			unsigned int imgHeight, TCoherence Coherence) override;
+	};
+
+	///////////////////////////////////////////////////////////////////////////////
 	// TOCLRunEquivLabeling :: OCL Run Equivalence algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
@@ -200,7 +278,7 @@ namespace LabelingTools
 	public:
 		TOCLRunEquivLabeling(bool runOnGPU = true);		
 
-	private:
+	private:	
 		typedef struct
 		{
 			cl_uint l, r;	// Left and right run positions
@@ -221,7 +299,7 @@ namespace LabelingTools
 				  analizeKernel,
 				  labelKernel;
 
-		cl_mem runs;
+		cl_mem runs, runNum;
 
 		TOCLBuffer<TPixel> *pix;
 		TOCLBuffer<TLabel> *lb;

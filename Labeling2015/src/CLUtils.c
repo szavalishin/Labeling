@@ -137,7 +137,7 @@ int InitOpenCL( clState* state, clInitParams* params )
         {
             errNum = clGetDeviceIDs(platformIDs[i], params->device_type, 1, &deviceID, NULL);
             platformID = platformIDs[i];
-
+			
             if(errNum != CL_SUCCESS)
             {
                 continue;
@@ -214,7 +214,7 @@ int InitOpenCL( clState* state, clInitParams* params )
 
     errNum = clGetDeviceInfo(deviceID, CL_DEVICE_NAME, CL_DEVICE_NAME_SIZE,
     		(void *)&state->device_info.device_name, NULL);
-
+	
 	errNum |= clGetDeviceInfo(deviceID, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(cl_uint),
 		&state->device_info.num_cores, NULL);
 

@@ -32,6 +32,7 @@ struct Options
 	std::shared_ptr<ILabeling> labelingAlg;
 
 	bool useGPU = false;
+	TCoherence coh = COH_DEFAULT;
 	bool quickExit = false;
 };
 
@@ -41,7 +42,7 @@ TImage ProcessImage(const TImage &inImg, Options& opts, TTime& time)
 {
 	TImage labels;
 
-	time = opts.labelingAlg->Label(inImg, labels, opts.numThreads);
+	time = opts.labelingAlg->Label(inImg, labels, opts.numThreads, opts.coh);
 
 	return labels;
 }
@@ -125,7 +126,7 @@ void ProcessImages(Options &opts)
 		cv::imwrite(opts.outPath + "/" + fileName, LabelsToRGB(img));
 		time += imgTime;
 
-		cout /*<< imgTime */<< "\n";
+		cout << imgTime << "\n";
 	}
 
 	cout << "\nAverage processing time: " << float(time) / count / 1000 << " ms\n";
@@ -140,17 +141,20 @@ void PrintHelp(void)
 			"  -i <input_path>: Input file or path\n"
 			"  -o <out_path>  : Output path\n"
 			"  -a <algorithm> : Labeling algorithm:\n"
-			"                     bin       : Binarization\n"
-			"                     he-run    : Run labeling (He)\n"
-			"                     gr-block  : Block labeling (Grana)\n"
-			"                     ocv       : OpenCV labeling\n"
-			"                     lbeq      : OpenMP Label equivalence\n"
-			"                     runeq     : OpenMP Run equivalence\n"
-			"                     ocl-bin   : OpenCL Binarization\n"
-			"                     ocl-lbeq  : OpenCL Label equivalence\n"
-			"                     ocl-runeq : OpenCL Run equivalence\n"
+			"                     bin        : Binarization\n"
+			"                     he-run     : Run labeling (He)\n"
+			"                     gr-block   : Block labeling (Grana)\n"
+			"                     ocv        : OpenCV labeling\n"
+			"                     omp-lbeq   : OpenMP Label equivalence\n"		
+			"                     omp-lbeq2x : OpenMP Label equivalence for 2x2 blocks\n"
+			"                     omp-runeq  : OpenMP Run equivalence\n"			
+			"                     ocl-bin    : OpenCL Binarization\n"
+			"                     ocl-lbeq   : OpenCL Label equivalence\n"
+			"                     ocl-lbeq2x : OpenCL Label equivalence for 2x2 blocks\n"
+			"                     ocl-runeq  : OpenCL Run equivalence\n"
 			"  -g             : Use GPU for OpenCL (CPU otherwise)\n"
 			"  -j <threads>   : Set numer of parallel threads\n"
+			"  -c <connect>	  : Set connectivity (4 or 8)\n"
 			"  -h             : Print this help\n\n";
 }
 
@@ -166,16 +170,20 @@ std::shared_ptr<ILabeling> SetLabelingAlg(const std::string &algName, bool useGP
 		return std::make_shared<TOCLBinLabeling>(useGPU);
 	if (algName == "ocl-lbeq")
 		return std::make_shared<TOCLLabelDistribution>(useGPU);
+	if (algName == "ocl-lbeq2x")
+		return std::make_shared<TOCLLabelEquivalenceX2>(useGPU);
 	if (algName == "ocl-runeq")
 		return std::make_shared<TOCLRunEquivLabeling>(useGPU);
 	if (algName == "ocv")
 		return std::make_shared<TOpenCVLabeling>();
 	if (algName == "gr-block")
 		return std::make_shared<TBlockGranaLabeling>();
-	if (algName == "lbeq")
+	if (algName == "omp-lbeq")
 		return std::make_shared<TLabelDistribution>();
-	if (algName == "runeq")
-		return std::make_shared<TRunEqivLabeling>();
+	if (algName == "omp-runeq")
+		return std::make_shared<TRunEqivLabeling>();	
+	if (algName == "omp-lbeq2x")
+		return std::make_shared<TLabelEquivalenceX2>();
 
 	PrintHelp();
 	throw std::exception("No labeling algorithm specified");
@@ -211,6 +219,7 @@ Options ParseInput(int argc, char** argv)
 		if (!strcmp(argv[i], "-o")) { opts.outPath = ReadData(i); continue; }
 		if (!strcmp(argv[i], "-j")) { opts.numThreads = std::stoi(ReadData(i)); continue; }
 		if (!strcmp(argv[i], "-g")) { opts.useGPU = true; continue; }
+		if (!strcmp(argv[i], "-c")) { opts.coh = ReadData(i) == "4" ? COH_4 : COH_8; continue; }
 		if (!strcmp(argv[i], "-h")) { PrintHelp(); opts.quickExit = true; return opts; }
 	}
 
@@ -266,7 +275,7 @@ int main(int argc, char** argv)
 	{
 		cout << "Error: Unknown exception\n\n";
 	}
-
+	
 	return 0;
 }
 

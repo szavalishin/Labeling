@@ -8,6 +8,7 @@
 
 #include <limits>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/highgui/highgui.hpp>
 #include <opencv/cv.h>
 
 //#pragma optimize("", off);
@@ -50,6 +51,8 @@ namespace LabelingTools
 
 	void TBlockGranaLabeling::DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh)
 	{
+		THROW_IF(coh == COH_4, "TLabelEquivalenceX2::DoLabel : Method does not support 4x connectivity");
+
 		int numLabels;
 		cvLabelingImageLab(&IplImage(pixels), &IplImage(labels), 255, &numLabels);
 	}
@@ -208,15 +211,16 @@ namespace LabelingTools
 
 	void TLabelDistribution::DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh)
 	{
-		SetupThreads(threads);
+		if (coh == COH_DEFAULT) coh = COH_4;
 
+		SetupThreads(threads);
 		InitMap(pixels, labels);
 
 		bool noChanges;
 		do
 		{
-			noChanges = Scan(labels);
-			Analyze(labels);
+			noChanges = Scan(labels, coh);
+			Analyze(labels);			
 		} while (!noChanges);
 	}
 
@@ -250,20 +254,22 @@ namespace LabelingTools
 
 	///////////////////////////////////////////////////////////////////////////////
 
-	TLabel TLabelDistribution::MinNWSELabel(const TLabel* lb, uint lbPos, uint width, uint maxPos) const
-	{		
-		long int pos = lbPos;
-
-		TLabel 
-			lb1 = pos - 1     > -1     ? lb[pos - 1] : 0,
-			lb2 = pos + 1     < maxPos ? lb[pos + 1] : 0,
-			lb3 = pos - width > -1     ? lb[pos - width] : 0,
-			lb4 = pos + width < maxPos ? lb[pos + width] : 0;
-
-		lb1 = MinLabel(lb1, lb2);
-		lb2 = MinLabel(lb3, lb4);
-
-		return MinLabel(lb1, lb2);
+	TLabel TLabelDistribution::MinNWSELabel(const TLabel* lb, uint lbPos, uint width, uint maxPos, TCoherence coh) const
+	{
+		if (coh == COH_8)
+			return MinLabel(GetLabel(lb, lbPos - 1, maxPos),
+				MinLabel(GetLabel(lb, lbPos - width, maxPos),
+				MinLabel(GetLabel(lb, lbPos + width, maxPos),
+				MinLabel(GetLabel(lb, lbPos - 1 - width, maxPos),
+				MinLabel(GetLabel(lb, lbPos + 1 + width, maxPos),
+				MinLabel(GetLabel(lb, lbPos - 1 + width, maxPos),
+				MinLabel(GetLabel(lb, lbPos + 1 - width, maxPos),
+				GetLabel(lb, lbPos + 1, maxPos))))))));
+		else
+			return MinLabel(GetLabel(lb, lbPos - 1, maxPos),
+				MinLabel(GetLabel(lb, lbPos - width, maxPos),
+				MinLabel(GetLabel(lb, lbPos + width, maxPos),				
+				GetLabel(lb, lbPos + 1, maxPos))));
 	}
 	
 	///////////////////////////////////////////////////////////////////////////////
@@ -275,7 +281,7 @@ namespace LabelingTools
 
 	///////////////////////////////////////////////////////////////////////////////
 
-	bool TLabelDistribution::Scan(TImage& labels)
+	bool TLabelDistribution::Scan(TImage& labels, TCoherence coh)
 	{
 		bool noChanges = true;
 
@@ -288,7 +294,7 @@ namespace LabelingTools
 
 			if (label)
 			{
-				TLabel minLabel = MinNWSELabel(lb, i, labels.cols, labels.total());
+				TLabel minLabel = MinNWSELabel(lb, i, labels.cols, labels.total(), coh);
 
 				if (minLabel < label)
 				{					
@@ -327,11 +333,284 @@ namespace LabelingTools
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
+	// TLabelEquivalenceX2 declaration
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TLabelEquivalenceX2::DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh)
+	{
+		THROW_IF(coh == COH_4, "TLabelEquivalenceX2::DoLabel : Method does not support 4x connectivity");		
+
+		SetupThreads(threads);
+		TSPixels sPixels = InitSPixels(pixels);
+	
+		bool noChanges;
+		do {
+			noChanges = Scan(sPixels);
+			Analyze(sPixels);
+		} while (!noChanges);
+
+		SetFinalLabels(pixels, labels, sPixels);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	inline bool TestBit(const TPixel *pix, int px, int py, int xshift, int yshift, int w, int h)
+	{
+		if (px > -xshift && px < w - xshift && py > -yshift && py < h - yshift) {
+			return pix[px + xshift + (py + yshift) * w];
+		}
+		return false;
+	}
+
+	TLabelEquivalenceX2::TSPixels TLabelEquivalenceX2::InitSPixels(const TImage& pixels)
+	{
+		/*const char pixNeibShift[4][5][2] = { { { -1, 1 }, { -1, 0 }, { -1, 1 }, { 0, -1 }, { 1, -1 } },
+											 { { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 } },
+											 { { 1, -1 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } },
+											 { { 1, 1 }, { 0, 1 }, { -1, 1 }, { -1, 0 }, { -1, -1 } } };
+		const char blockOrder[4][2] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };*/
+
+		TSPixels sPixels(pixels.cols / 2, pixels.rows / 2);
+		int w = pixels.cols, h = pixels.rows;
+		TPixel *pix = pixels.data;
+		
+		#pragma omp parallel for
+		for (int spy = 0; spy < sPixels.h; ++spy) {
+			for (int spx = 0; spx < sPixels.w; ++spx) {
+				size_t spos = spx + spy * sPixels.w;
+				size_t px = spx * 2, py = spy * 2;
+				size_t ppos = px + py * w;
+
+				TSPixel sPix = {0, 0};
+
+				// 2 3 4 5
+				// 1 a b 6
+				// 0 d c 7
+				// B A 9 8
+				ushort testPattern = 0;				
+				if (pix[ppos        ]) testPattern  =  0x1F;
+				if (pix[ppos + 1    ]) testPattern |=  0x1F << 3;
+				if (pix[ppos + 1 + w]) testPattern |=  0x1F << 6;
+				if (pix[ppos     + w]) testPattern |= (0x1F << 9) | 0x3;
+
+				if (testPattern) {
+					sPix.lb = spos;
+
+					if ((testPattern & (1 << 0) && TestBit(pix, px, py, -1, 1, w, h)) ||
+						(testPattern & (1 << 1) && TestBit(pix, px, py, -1, 0, w, h)))
+						sPix.conn = 1;
+					if ((testPattern & (1 << 2) && TestBit(pix, px, py, -1, -1, w, h)))
+						sPix.conn |= 1 << 1;
+					if ((testPattern & (1 << 3) && TestBit(pix, px, py, 0, -1, w, h)) ||
+						(testPattern & (1 << 4) && TestBit(pix, px, py, 1, -1, w, h)))
+						sPix.conn |= 1 << 2;
+					if ((testPattern & (1 << 5) && TestBit(pix, px, py, 2, -1, w, h)))
+						sPix.conn |= 1 << 3;
+					if ((testPattern & (1 << 6) && TestBit(pix, px, py, 2, 0, w, h)) ||
+						(testPattern & (1 << 7) && TestBit(pix, px, py, 2, 1, w, h)))
+						sPix.conn |= 1 << 4;
+					if ((testPattern & (1 << 8) && TestBit(pix, px, py, 2, 2, w, h)))
+						sPix.conn |= 1 << 5;
+					if ((testPattern & (1 << 9) && TestBit(pix, px, py, 1, 2, w, h)) ||
+						(testPattern & (1 << 10) && TestBit(pix, px, py, 0, 2, w, h)))
+						sPix.conn |= 1 << 6;
+					if ((testPattern & (1 << 11) && TestBit(pix, px, py, -1, 2, w, h)))
+						sPix.conn |= 1 << 7;
+				}
+				
+				sPixels[spos] = sPix;
+			}
+		}
+
+		//#pragma omp parallel for
+		/*for (long spi = 0; spi < sPixels.w * sPixels.h; ++spi)
+		{
+			const size_t spx = spi % sPixels.w;
+			const size_t spy = spi / sPixels.w;
+
+			TSPixel sPix;
+			sPix.lb = 0;
+
+			const size_t pos = spy * 2 * imWidth + spx * 2;
+			for (int i = 0; i < 8; ++i) sPix.conn[i] = 0;
+
+			int blockNeib = 1;
+
+			for (int i = 0; i < 4; ++i) {
+				const size_t curPos = pos + blockOrder[i][0] + blockOrder[i][1] * imWidth;
+
+				--blockNeib;
+				if (curPos < pixels.total() &&
+					pixels.at<TPixel>(curPos)) {
+					sPix.lb = 1;
+
+					for (int pixNeib = 0; pixNeib < 5; ++pixNeib) {
+						if (sPix.conn[blockNeib])
+						{
+							++blockNeib;
+							continue;
+						}
+
+						int xNeib = curPos % imWidth + pixNeibShift[i][pixNeib][0];
+						int yNeib = curPos / imWidth + pixNeibShift[i][pixNeib][1];
+						
+						if (!(xNeib > -1 && yNeib > -1 && xNeib < pixels.cols && yNeib < pixels.rows))
+							continue;
+						
+						size_t neibPixPos = xNeib + yNeib * imWidth;							
+
+						if (pixels.at<TPixel>(neibPixPos)) {							
+							sPix.conn[blockNeib] = 1;
+						}
+						++blockNeib;
+					}
+				}
+				else {
+					blockNeib += 2;
+				}
+			}
+
+			size_t spos = spx + spy * sPixels.w;
+
+			if (sPix.lb)
+				sPix.lb = spos;
+
+			sPixels[spos] = sPix;		
+		}		*/
+
+		return sPixels;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	bool TLabelEquivalenceX2::Scan(TSPixels& sPixels)
+	{
+		bool noChanges = true;
+		TSPixel *sPix = sPixels.data.data();
+
+		#pragma omp parallel for
+		for (int y = 0; y < sPixels.h; ++y) {
+			for (int x = 0; x < sPixels.w; ++x) {
+				TLabel label = sPix[x + y * sPixels.w].lb;
+
+				if (label) {
+					TLabel minLabel = MinSPixLabel(sPixels, x, y);
+
+					if (minLabel < label) {
+						TLabel tmpLabel = sPix[label].lb;
+						sPix[label].lb = min(tmpLabel, minLabel);
+						noChanges = false;
+					}
+				}
+			}
+		}
+
+		return noChanges;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	inline TLabel TLabelEquivalenceX2::GetBlockLabel(const TSPixel *sPix, bool conn, int px, int py, int xshift, int yshift, int w, int h)
+	{
+		if (conn) {			
+			if (px > -xshift && px < w - xshift && py > -yshift && py < h - yshift) {
+				return sPix[px + xshift + (py + yshift) * w].lb;
+			}
+		}
+
+		return UINT_MAX;
+	}
+
+	TLabel TLabelEquivalenceX2::MinSPixLabel(const TSPixels& sPixels, int x, int y)
+	{
+		//const char blockShift[8][2] = { { -1, 0 }, { -1, -1 }, { 0, -1 }, { 1, -1 }, { 1, 0 }, { 1, 1 }, { 0, 1 }, { -1, 1 } };
+		
+		TLabel minLabel;
+		const TSPixel *sPix = sPixels.data.data();
+		uchar conn = sPix[x + y * sPixels.w].conn;
+		int w = sPixels.w, h = sPixels.h;
+
+		minLabel = min(GetBlockLabel(sPix, conn & (1 << 0), x, y, -1, 0, w, h),
+			min(GetBlockLabel(sPix, conn & (1 << 1), x, y, -1, -1, w, h),
+			min(GetBlockLabel(sPix, conn & (1 << 2), x, y, 0, -1, w, h),
+			min(GetBlockLabel(sPix, conn & (1 << 3), x, y, 1, -1, w, h),
+			min(GetBlockLabel(sPix, conn & (1 << 4), x, y, 1, 0, w, h),
+			min(GetBlockLabel(sPix, conn & (1 << 5), x, y, 1, 1, w, h),
+			min(GetBlockLabel(sPix, conn & (1 << 6), x, y, 0, 1, w, h),
+			GetBlockLabel(sPix, conn & (1 << 7), x, y, -1, 1, w, h))))))));
+
+		/*for (int i = 0; i < 8; ++i) {
+			if (conn & (1 << i))
+			{
+				int xBlock = x + blockShift[i][0];
+				int yBlock = y + blockShift[i][1];
+
+				if (!(xBlock > -1 && xBlock > -1 && xBlock < sPixels.w && yBlock < sPixels.h))
+					continue;
+
+				size_t neibBlockPos = xBlock + yBlock * sPixels.w;
+
+				TLabel neibLb = sPixels[neibBlockPos].lb;
+
+				if (neibLb)
+					minLabel = min(minLabel, neibLb);
+			}
+		}*/
+
+		return minLabel;
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TLabelEquivalenceX2::Analyze(TSPixels& sPixels)
+	{		
+		#pragma omp parallel for
+		for (long sPos = 0; sPos < sPixels.w * sPixels.h; ++sPos) {
+			TLabel label = sPixels[sPos].lb;
+
+			if (label) {
+				TLabel curLabel = sPixels[label].lb;
+				while (curLabel != label) {
+					label = sPixels[curLabel].lb;
+					curLabel = sPixels[label].lb;
+				}
+
+				sPixels[sPos].lb = label;
+			}
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TLabelEquivalenceX2::SetFinalLabels(const TImage& pixels, TImage& labels, const TSPixels& sPixels)
+	{
+		//labels = TImage(pixels.rows, pixels.cols, CV_32SC1, cv::Scalar(0));
+		TLabel *lb = reinterpret_cast<TLabel*>(labels.data);
+		TPixel *pix = pixels.data;
+
+		#pragma omp parallel for
+		for (int y = 0; y < pixels.rows; ++y) {
+			for (int x = 0; x < pixels.cols; ++x) {				
+				const size_t sPos = x / 2 + y / 2 * sPixels.w;
+				const size_t pos = x + y * pixels.cols;
+
+				TLabel label = sPixels[sPos].lb;
+
+				if (pix[pos]) {
+					lb[pos] = label;
+				}
+			}
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
 	// TRunEqivLabeling declaration
 	///////////////////////////////////////////////////////////////////////////////
 
 	void TRunEqivLabeling::DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh)
 	{
+		THROW_IF(coh == COH_4, "TRunEqivLabeling::DoLabel : 4x connectivity is not implemented for this method");
+
 		SetupThreads(threads);
 
 		pixels_ = &pixels;
@@ -365,7 +644,7 @@ namespace LabelingTools
 
 	void TRunEqivLabeling::FindRuns(void)
 	{		
-#		pragma omp parallel for
+#		pragma omp parallel for schedule(dynamic)
 		for (int row = 0; row < height_; ++row)
 		{
 			uint pixPos = row * width_;
@@ -388,8 +667,7 @@ namespace LabelingTools
 						++curRun;
 						curRun->lb = 0;
 					}
-				}
-				else {
+				} else {
 					if (curRun->lb) {
 						curRun->r = pos - 1;						
 						++curRun;
@@ -702,7 +980,7 @@ namespace LabelingTools
 	///////////////////////////////////////////////////////////////////////////////
 
 	void TOCLLabelDistribution::DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
-		unsigned int imgHeight, TCoherence Coherence)
+		unsigned int imgHeight, TCoherence coh)
 	{
 		cl_int clError;
 		size_t const workSize = imgWidth * imgHeight;
@@ -721,7 +999,8 @@ namespace LabelingTools
 		clError = clSetKernelArg(scanKernel, 0, sizeof(cl_mem), (void*)&labels.buffer);
 		clError |= clSetKernelArg(scanKernel, 1, sizeof(unsigned int), (void*)&imgWidth);
 		clError |= clSetKernelArg(scanKernel, 2, sizeof(unsigned int), (void*)&imgHeight);
-		clError |= clSetKernelArg(scanKernel, 3, sizeof(cl_mem), (void*)&noChanges.buffer);
+		clError |= clSetKernelArg(scanKernel, 3, sizeof(TCoherence), (void*)&coh);
+		clError |= clSetKernelArg(scanKernel, 4, sizeof(cl_mem), (void*)&noChanges.buffer);	
 		clError |= clSetKernelArg(analizeKernel, 0, sizeof(cl_mem), (void*)&labels.buffer);
 		THROW_IF_OCL(clError, "TOCLLabelDistribution::DoOCLLabel");
 
@@ -736,6 +1015,148 @@ namespace LabelingTools
 
 			noChanges.Pull();
 		} while (!noChanges[0]);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	// TOCLLabelEquivalenceX2 declaration
+	///////////////////////////////////////////////////////////////////////////////
+
+	TOCLLabelEquivalenceX2::TOCLLabelEquivalenceX2(bool runOnGPU)
+		: initKernel(NULL),
+		  scanKernel(NULL),
+		  analyzeKernel(NULL),
+		  setFinalLabelsKernel(NULL)
+	{
+		cl_device_type devType;
+		if (runOnGPU)
+			devType = CL_DEVICE_TYPE_GPU;
+		else
+			devType = CL_DEVICE_TYPE_CPU;
+
+		Init(devType, "", "LabelingAlgs.cl");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelEquivalenceX2::InitKernels(void)
+	{
+		cl_int clError;
+
+		initKernel = clCreateKernel(State.program, "LBEQ2_Init", &clError);
+		scanKernel = clCreateKernel(State.program, "LBEQ2_Scan", &clError);
+		analyzeKernel = clCreateKernel(State.program, "LBEQ2_Analyze", &clError);
+		setFinalLabelsKernel = clCreateKernel(State.program, "LBEQ2_SetFinalLabels", &clError);
+
+		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::InitKernels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelEquivalenceX2::FreeKernels(void)
+	{
+		if (initKernel)				clReleaseKernel(initKernel);
+		if (scanKernel)				clReleaseKernel(scanKernel);
+		if (analyzeKernel)			clReleaseKernel(analyzeKernel);
+		if (setFinalLabelsKernel)	clReleaseKernel(setFinalLabelsKernel);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelEquivalenceX2::InitSPixels(TCoherence coh)
+	{
+		cl_int clError;
+		size_t workSize[] = { spWidth, spHeight };
+
+		clError  = clSetKernelArg(initKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
+		clError |= clSetKernelArg(initKernel, 1, sizeof(cl_mem), (void*)&sPixels);//->buffer);
+		clError |= clSetKernelArg(initKernel, 2, sizeof(cl_mem), (void*)&imgWidth);
+		clError |= clSetKernelArg(initKernel, 3, sizeof(cl_mem), (void*)&imgHeight);
+		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::InitSPixels");
+
+		clError = clEnqueueNDRangeKernel(State.queue, initKernel, 2, NULL, workSize, NULL, 0, NULL, NULL);
+		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::InitSPixels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelEquivalenceX2::LabelSPixels(void)
+	{
+		cl_int clError;
+		const size_t scanWorkSize[] = { spWidth, spHeight };
+		const size_t analyzeWorkSize[] = { scanWorkSize[0] * scanWorkSize[1] };
+	
+		TOCLBuffer<char> noChanges(*this, WRITE_ONLY, 1);		
+
+		clError = clSetKernelArg(scanKernel, 0, sizeof(cl_mem), (void*)&sPixels);// ->buffer);
+		clError |= clSetKernelArg(scanKernel, 1, sizeof(unsigned int), (void*)&spWidth);
+		clError |= clSetKernelArg(scanKernel, 2, sizeof(unsigned int), (void*)&spHeight);
+		clError |= clSetKernelArg(scanKernel, 3, sizeof(cl_mem), (void*)&noChanges.buffer);
+		clError |= clSetKernelArg(analyzeKernel, 0, sizeof(cl_mem), (void*)&sPixels);// ->buffer);
+		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::LabelSPixels");
+		
+		do
+		{
+			noChanges[0] = 1;
+			noChanges.Push();
+
+			clError |= clEnqueueNDRangeKernel(State.queue, scanKernel, 2, NULL, scanWorkSize, NULL, 0, NULL, NULL);
+			clError |= clEnqueueNDRangeKernel(State.queue, analyzeKernel, 1, NULL, analyzeWorkSize, NULL, 0, NULL, NULL);
+			
+			noChanges.Pull();
+		} while (!noChanges[0]);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelEquivalenceX2::SetFinalLabels(void)
+	{
+		cl_int clError;
+		size_t workSize[] = { imgWidth, imgHeight };
+
+		clError = clSetKernelArg(setFinalLabelsKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
+		clError |= clSetKernelArg(setFinalLabelsKernel, 1, sizeof(cl_mem), (void*)&lb->buffer);
+		clError |= clSetKernelArg(setFinalLabelsKernel, 2, sizeof(cl_mem), (void*)&sPixels);// ->buffer);
+		clError |= clSetKernelArg(setFinalLabelsKernel, 3, sizeof(cl_mem), (void*)&imgWidth);
+		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::SetFinalLabels");
+
+		clError |= clEnqueueNDRangeKernel(State.queue, setFinalLabelsKernel, 2, NULL, workSize, NULL, 0, NULL, NULL);
+		THROW_IF_OCL(clError, "TOCLLabelEquivalenceX2::SetFinalLabels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelEquivalenceX2::DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imWidth,
+		unsigned int imHeight, TCoherence coh)
+	{
+		cl_int clError;
+
+		pix = &pixels;
+		lb = &labels;
+
+		imgWidth = imWidth;
+		imgHeight = imHeight;
+		spWidth = imgWidth >> 1;
+		spHeight = imgHeight >> 1;
+
+		sPixels = clCreateBuffer(State.context, CL_MEM_READ_WRITE, sizeof(TSPixel)* spHeight * spWidth, NULL, &clError);
+		//sPixels = new TOCLBuffer<TSPixel>(*this, READ_WRITE, spHeight * spWidth);
+		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::DoOCLLabel");
+
+		InitSPixels(coh);
+		LabelSPixels();
+		SetFinalLabels();
+
+		clReleaseMemObject(sPixels);
+
+		/*cv::Mat sp(spHeight, spWidth, CV_8UC1);
+		sPixels->Pull();
+		for (int i = 0; i < sPixels->Buffer().size(); ++i)
+		{
+			sp.at<uchar>(i) = (double)sPixels->operator[](i).lb * 25;
+		}
+		cv::imwrite("spix.png", sp);
+
+		delete sPixels;*/
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
@@ -792,10 +1213,10 @@ namespace LabelingTools
 		cl_int clError;
 
 		// Find runs
-		clError = clSetKernelArg(initKernel, 0, sizeof(cl_mem), (void*)&runs);
+		clError = clSetKernelArg(initKernel, 0, sizeof(cl_mem), (void*)&runNum);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::InitRuns");
 
-		size_t workSize = height * (width >> 1);
+		size_t workSize = height;
 		clError = clEnqueueNDRangeKernel(State.queue, initKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::InitRuns");
 	}
@@ -809,7 +1230,8 @@ namespace LabelingTools
 		// Find runs
 		clError  = clSetKernelArg(findRunsKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
 		clError |= clSetKernelArg(findRunsKernel, 1, sizeof(cl_mem), (void*)&runs);
-		clError |= clSetKernelArg(findRunsKernel, 2, sizeof(unsigned int), (void*)&width);
+		clError |= clSetKernelArg(findRunsKernel, 2, sizeof(cl_mem), (void*)&runNum);
+		clError |= clSetKernelArg(findRunsKernel, 3, sizeof(unsigned int), (void*)&width);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::FindRuns");
 
 		size_t workSize = height;
@@ -825,7 +1247,8 @@ namespace LabelingTools
 
 		// Find neibour runs
 		clError  = clSetKernelArg(findNeibKernel, 0, sizeof(cl_mem), (void*)&runs);
-		clError |= clSetKernelArg(findNeibKernel, 1, sizeof(unsigned int), (void*)&width);
+		clError |= clSetKernelArg(findNeibKernel, 1, sizeof(cl_mem), (void*)&runNum);
+		clError |= clSetKernelArg(findNeibKernel, 2, sizeof(unsigned int), (void*)&width);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::FindNeibRuns");
 
 		size_t workSize = height;
@@ -843,19 +1266,24 @@ namespace LabelingTools
 		TOCLBuffer<char> noChanges(*this, WRITE_ONLY, 1);
 
 		clError  = clSetKernelArg(scanKernel, 0, sizeof(cl_mem), (void*)&runs);
-		clError |= clSetKernelArg(scanKernel, 1, sizeof(unsigned int), (void*)&width);
-		clError |= clSetKernelArg(scanKernel, 2, sizeof(cl_mem), (void*)&noChanges.buffer);
+		clError |= clSetKernelArg(scanKernel, 1, sizeof(cl_mem), (void*)&runNum);
+		clError |= clSetKernelArg(scanKernel, 2, sizeof(unsigned int), (void*)&width);
+		clError |= clSetKernelArg(scanKernel, 3, sizeof(cl_mem), (void*)&noChanges.buffer);
 		clError |= clSetKernelArg(analizeKernel, 0, sizeof(cl_mem), (void*)&runs);
+		clError |= clSetKernelArg(analizeKernel, 1, sizeof(cl_mem), (void*)&runNum);
+		clError |= clSetKernelArg(analizeKernel, 2, sizeof(unsigned int), (void*)&width);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::Scan");
 
-		size_t workSize = height * (width >> 1);
+		size_t workSize = height;
 		do{
 			noChanges[0] = 1;
 			noChanges.Push();
 
 			clError = clEnqueueNDRangeKernel(State.queue, scanKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
 			clError |= clEnqueueNDRangeKernel(State.queue, analizeKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
-
+			
+			THROW_IF_OCL(clError, "TOCLRunEquivLabeling::Scan");
+			
 			noChanges.Pull();
 		} while (!noChanges[0]);
 
@@ -870,11 +1298,12 @@ namespace LabelingTools
 
 		// Find neibour runs
 		clError  = clSetKernelArg(labelKernel, 0, sizeof(cl_mem), (void*)&runs);
-		clError |= clSetKernelArg(labelKernel, 1, sizeof(cl_mem), (void*)&lb->buffer);
-		clError |= clSetKernelArg(labelKernel, 2, sizeof(unsigned int), (void*)&width);
+		clError |= clSetKernelArg(labelKernel, 1, sizeof(cl_mem), (void*)&runNum);
+		clError |= clSetKernelArg(labelKernel, 2, sizeof(cl_mem), (void*)&lb->buffer);
+		clError |= clSetKernelArg(labelKernel, 3, sizeof(unsigned int), (void*)&width);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::SetFinalLabels");
 
-		size_t workSize = height * (width >> 1);
+		size_t workSize = height;// *(width >> 1);
 		clError = clEnqueueNDRangeKernel(State.queue, labelKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::SetFinalLabels");
 	}
@@ -882,8 +1311,10 @@ namespace LabelingTools
 	///////////////////////////////////////////////////////////////////////////////
 
 	void TOCLRunEquivLabeling::DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
-		unsigned int imgHeight, TCoherence Coherence)
+		unsigned int imgHeight, TCoherence coh)
 	{
+		THROW_IF(coh == COH_4, "TOCLRunEquivLabeling::DoLabel : 4x connectivity is not implemented for this method");
+
 		cl_int clError;
 
 		this->pix = &pixels;
@@ -896,6 +1327,10 @@ namespace LabelingTools
 			sizeof(TRun) * imgHeight * (imgWidth >> 1), NULL, &clError);
 		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::DoOCLLabel");
 
+		runNum = clCreateBuffer(State.context, CL_MEM_READ_WRITE,
+			sizeof(uint) * imgHeight, NULL, &clError);
+		THROW_IF_OCL(clError, "TOCLRunEquivLabeling::DoOCLLabel");
+
 		InitRuns();
 		FindRuns();
 		FindNeibRuns();
@@ -903,6 +1338,7 @@ namespace LabelingTools
 		SetFinalLabels();
 
 		clReleaseMemObject(runs);
+		clReleaseMemObject(runNum);
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

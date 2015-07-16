@@ -1,11 +1,11 @@
 #ifndef LABELING_ALGS_CL_
 #define LABELING_ALGS_CL_
 
-#include "C:/!Proj/GPU Labeling/Code/Labeling2015/Labeling2015/Labeling2015/OCLCommons.cl"
+#include "D:/Proj/Other/GPU Labeling/Code/Labeling2015/Labeling2015/Labeling2015/OCLCommons.cl"
 
-//-------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
 // TOCLBinLabeling kernels
-//-------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
 
 __kernel void BinLabelingKernel(
 	__global TPixel	*pixels, // Image pixels
@@ -15,9 +15,10 @@ __kernel void BinLabelingKernel(
 	uint id = get_global_id(0);
 	labels[id] = pixels[id] > 0 ? 1 : 0;
 }
-//-------------------------------------------------------------------------
+
+///////////////////////////////////////////////////////////////////////////////
 // TOCLLabelDistribution kernels
-//-------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
 
 __kernel void DistrInitKernel(
 	__global TPixel	*pixels,	// Intermediate buffers
@@ -28,10 +29,13 @@ __kernel void DistrInitKernel(
 	labels[pos] = pixels[pos] ? pos : 0;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 __kernel void DistrScanKernel(
 	__global TLabel	*labels,	// Image labels
 			 uint	width,		// Image width
 			 uint	height,		// Image height
+			 TCoherence coh,	// CC coherence
 	__global char	*noChanges	// Shows if no pixels were changed
 	)
 {
@@ -42,7 +46,7 @@ __kernel void DistrScanKernel(
 
 	if(label)
 	{
-		TLabel minLabel = MinNWSELabel(labels, pos, width, size);
+		TLabel minLabel = MinNWSELabel(labels, pos, width, size, coh);
 		
 		if(minLabel < label)
 		{
@@ -52,6 +56,8 @@ __kernel void DistrScanKernel(
 		}
 	}
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 __kernel void DistrAnalizeKernel(__global TLabel *labels)
 {
@@ -71,9 +77,187 @@ __kernel void DistrAnalizeKernel(__global TLabel *labels)
 	}
 }
 
-//-------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
+// TOCLLabelEquivX2 kernels
+///////////////////////////////////////////////////////////////////////////////
+
+typedef struct
+{
+	TLabel lb;		// Super pixel label
+	char conn;		// Super pixel neighbor connectivity:
+					// 1 2 3
+					// 0 x 4
+					// 7 6 5
+} TSPixel;
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline bool TestBit(__global const TPixel *pix, int px, int py, int xshift, int yshift, int w, int h)
+{
+	if (px > -xshift && px < w - xshift && py > -yshift && py < h - yshift) {
+		return pix[px + xshift + (py + yshift) * w];
+	}
+	return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ2_Init(
+	__global const TPixel *pixels,	// Image pixels
+	__global TSPixel *sPixels,	// Super pixels
+	uint w, // Image widht
+	uint h  // Image height
+	)
+{
+	int spx = get_global_id(0);
+	int spy = get_global_id(1);
+
+	size_t spos = spx + spy * w / 2;
+	size_t px = spx * 2, py = spy * 2;
+	size_t ppos = px + py * w;
+
+	TSPixel sPix;
+	sPix.lb = 0;
+	sPix.conn = 0;
+
+	// 2 3 4 5
+	// 1 a b 6
+	// 0 d c 7
+	// B A 9 8
+	ushort testPattern = 0;
+	if (pixels[ppos])         testPattern = 0x1F;
+	if (pixels[ppos + 1])     testPattern |= 0x1F << 3;
+	if (pixels[ppos + 1 + w]) testPattern |= 0x1F << 6;
+	if (pixels[ppos + w])     testPattern |= (0x1F << 9) | 0x3;
+
+	if (testPattern) {
+		sPix.lb = spos;
+
+		if ((testPattern & (1 << 0) && TestBit(pixels, px, py, -1, 1, w, h)) ||
+			(testPattern & (1 << 1) && TestBit(pixels, px, py, -1, 0, w, h)))
+			sPix.conn = 1;
+		if ((testPattern & (1 << 2) && TestBit(pixels, px, py, -1, -1, w, h)))
+			sPix.conn |= 1 << 1;
+		if ((testPattern & (1 << 3) && TestBit(pixels, px, py, 0, -1, w, h)) ||
+			(testPattern & (1 << 4) && TestBit(pixels, px, py, 1, -1, w, h)))
+			sPix.conn |= 1 << 2;
+		if ((testPattern & (1 << 5) && TestBit(pixels, px, py, 2, -1, w, h)))
+			sPix.conn |= 1 << 3;
+		if ((testPattern & (1 << 6) && TestBit(pixels, px, py, 2, 0, w, h)) ||
+			(testPattern & (1 << 7) && TestBit(pixels, px, py, 2, 1, w, h)))
+			sPix.conn |= 1 << 4;
+		if ((testPattern & (1 << 8) && TestBit(pixels, px, py, 2, 2, w, h)))
+			sPix.conn |= 1 << 5;
+		if ((testPattern & (1 << 9) && TestBit(pixels, px, py, 1, 2, w, h)) ||
+			(testPattern & (1 << 10) && TestBit(pixels, px, py, 0, 2, w, h)))
+			sPix.conn |= 1 << 6;
+		if ((testPattern & (1 << 11) && TestBit(pixels, px, py, -1, 2, w, h)))
+			sPix.conn |= 1 << 7;
+	}
+
+	sPixels[spos] = sPix;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline TLabel GetBlockLabel(__global const TSPixel *sPix, bool conn, int px, int py, int xshift, int yshift, int w, int h)
+{
+	if (conn) {
+		if (px > -xshift && px < w - xshift && py > -yshift && py < h - yshift) {
+			return sPix[px + xshift + (py + yshift) * w].lb;
+		}
+	}
+
+	return UINT_MAX;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+TLabel MinSPixLabel(__global const TSPixel *sPix, int x, int y, int w, int h)
+{
+	TLabel minLabel;	
+	uchar conn = sPix[x + y * w].conn;	
+
+	minLabel = min(GetBlockLabel(sPix, conn & (1 << 0), x, y, -1,  0, w, h),
+		       min(GetBlockLabel(sPix, conn & (1 << 1), x, y, -1, -1, w, h),
+			   min(GetBlockLabel(sPix, conn & (1 << 2), x, y,  0, -1, w, h),
+			   min(GetBlockLabel(sPix, conn & (1 << 3), x, y,  1, -1, w, h),
+			   min(GetBlockLabel(sPix, conn & (1 << 4), x, y,  1,  0, w, h),
+			   min(GetBlockLabel(sPix, conn & (1 << 5), x, y,  1,  1, w, h),
+			   min(GetBlockLabel(sPix, conn & (1 << 6), x, y,  0,  1, w, h),
+			       GetBlockLabel(sPix, conn & (1 << 7), x, y, -1,  1, w, h))))))));
+
+	return minLabel;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ2_Scan(
+	__global TSPixel *sPixels,	// Super pixels
+	uint sWidth,				// Super pixels width
+	uint sHeight,				// Super pixels height
+	__global char *noChanges	// Shows if no pixels were changed
+	)
+{
+	const size_t x = get_global_id(0);
+	const size_t y = get_global_id(1);
+
+	TLabel label = sPixels[x + y * sWidth].lb;
+
+	if (label) {
+		TLabel minLabel = MinSPixLabel(sPixels, x, y, sWidth, sHeight);
+
+		if (minLabel < label) {
+			TLabel tmpLabel = sPixels[label].lb;
+			sPixels[label].lb = min(tmpLabel, minLabel);
+			*noChanges = 0;
+		}
+	}	
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ2_Analyze(__global TSPixel *sPixels)
+{
+	const size_t sPos = get_global_id(0);
+
+	TLabel label = sPixels[sPos].lb;
+
+	if (label){
+		TLabel curLabel = sPixels[label].lb;
+		while (curLabel != label)
+		{
+			label = sPixels[curLabel].lb;
+			curLabel = sPixels[label].lb;
+		}
+
+		sPixels[sPos].lb = label;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ2_SetFinalLabels(
+	__global TPixel *pixels, 
+	__global TLabel *labels, 
+	__global TSPixel *sPixels, 
+	uint width)
+{
+	const size_t x = get_global_id(0);
+	const size_t y = get_global_id(1);
+	const size_t sPos = (x >> 1) + (y >> 1) * (width >> 1);
+	const size_t pos = x + y * width;
+
+	TLabel label = sPixels[sPos].lb;
+
+	if (pixels[pos]) {
+		labels[pos] = label;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
 // TOCLRunEquivLabeling kernels
-//-------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
 
 	// TRun structure:
 	//                   tl          tr 
@@ -96,24 +280,23 @@ typedef struct
 	TRunSize bot;	// Bottom row bl and br
 } TRun;
 
+///////////////////////////////////////////////////////////////////////////////
+
 __kernel void REInitRunsKernel(
-	__global TRun	*runs	// Image runs
+	__global uint	*runNum	// Image runs
 	)
 {
 	const size_t pos = get_global_id(0);
 	
-	runs[pos].lb	=
-	runs[pos].l		=
-	runs[pos].r		= 0;
-	runs[pos].top.l = 1; // l > r means that there is no neighbors
-	runs[pos].top.r = 0;
-	runs[pos].bot.l = 1;
-	runs[pos].bot.r = 0;
+	runNum[pos] = 0;
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 __kernel void REFindRunsKernel(
 	__global TPixel	*pixels,	// Image pixels
 	__global TRun	*runs,		// Image runs
+	__global uint  *runNum,    // Run count in row
 			 uint	width		// Image width
 	)
 {
@@ -125,7 +308,9 @@ __kernel void REFindRunsKernel(
 	__global TPixel *curPix = pixels + pixPos;
 	__global TRun *curRun = runs + rowPos;
 
-	for(uint pos = 0, runPos = 0; pos < width; ++pos) 
+	uint runPos = 0;
+	curRun->lb = 0;
+	for(uint pos = 0; pos < width; ++pos) 
 	{
 		if(*curPix) {
 			if(!curRun->lb) {
@@ -134,16 +319,22 @@ __kernel void REFindRunsKernel(
 			}			
 			if(pos == width - 1) {
 				curRun->r = pos;
+				++curRun;
+				curRun->lb = 0;
 			}
 		} else {
 			if(curRun->lb) {
 				curRun->r = pos - 1;
 				++curRun;
+				curRun->lb = 0;
 			}
 		}
 		++curPix;
 	}
+	runNum[row] = runPos;
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 int IsNeib(__global const TRun *r1, __global const TRun *r2)
 {
@@ -154,12 +345,16 @@ int IsNeib(__global const TRun *r1, __global const TRun *r2)
 		(r2->r >= r1->l && r2->r <= r1->r);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 void FindNeibRuns(__global TRun *curRun, 
 				  __global TRunSize *neibSize, 
 				  __global const TRun *neibRow, 
 				  uint *neibPos, uint runWidth)
 {
 	int noNeib = 0;
+	neibSize->l = 1;
+	neibSize->r = 0;
 
 	while(*neibPos < runWidth && !noNeib)
 	{
@@ -187,6 +382,8 @@ void FindNeibRuns(__global TRun *curRun,
 	}
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 void FindNeib(__global TRun *curRun, 
 			  __global TRunSize *neibSize, 
 			  __global const TRun *neibRow,
@@ -203,13 +400,16 @@ void FindNeib(__global TRun *curRun,
 	}
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 __kernel void REFindNeibKernel(
-	__global TRun	*runs,	// Intermediate buffers
-			 uint	width	// Image width
+	__global TRun	*runs,	 // Intermediate buffers
+	__global uint   *runNum, // Run numer inside a row
+			 uint	width	 // Image width
 	)
 {
 	const size_t row = get_global_id(0);
-	const size_t height = get_global_size(0);
+	const size_t height = get_global_size(0);	
 
 	uint runWidth = width >> 1;
 
@@ -220,21 +420,28 @@ __kernel void REFindNeibKernel(
 	uint topPos = 0;
 	uint botPos = 0;
 
-	for(uint pos = 0; curRun->lb != 0 && pos < runWidth; ++pos)
+	for (uint pos = 0; pos < runNum[row]; ++pos)
 	{
-		if(row > 0) {
-			//FindNeib(curRun, &curRun->top, topRow, runWidth);
-			FindNeibRuns(curRun, &curRun->top, topRow, &topPos, runWidth);
+		if(row > 0) {			
+			FindNeibRuns(curRun, &curRun->top, topRow, &topPos, runNum[row - 1]);
+		}
+		else{
+			curRun->top.l = 1;
+			curRun->top.r = 0;
 		}
 		
-		if(row < height - 1) {
-			//FindNeib(curRun, &curRun->bot, botRow, runWidth);
-			FindNeibRuns(curRun, &curRun->bot, botRow, &botPos, runWidth);
+		if(row < height - 1) {			
+			FindNeibRuns(curRun, &curRun->bot, botRow, &botPos, runNum[row + 1]);
+		}else{
+			curRun->bot.l = 1;
+			curRun->bot.r = 0;
 		}
 
 		++curRun;
 	}
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 TLabel MinRunLabel(const __global TRun *runs, uint pos)
 {
@@ -255,65 +462,91 @@ TLabel MinRunLabel(const __global TRun *runs, uint pos)
 	return minLabel;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 __kernel void REScanKernel(
 	__global TRun	*runs,		// Image runs
+	__global uint   *runNum,    // Run count inside a row
 			 uint	width,		// Image width
 	__global char	*noChanges	// Shows if no pixels were changed
 	)
 {
-	const size_t pos = get_global_id(0);
+	const size_t row = get_global_id(0);
 	
 	uint runWidth = width >> 1;
-	TLabel label = runs[pos].lb;
-
-	if(label)
-	{
-		TLabel minLabel = MinRunLabel(runs, pos);
-		
-		if(minLabel < label)
-		{
-			TLabel tmpLabel = runs[label - 1].lb;
-			runs[label - 1].lb = min(tmpLabel, minLabel);
-			*noChanges = 0;
-		}
-	}
-}
-
-__kernel void REAnalizeKernel(__global TRun *runs)
-{
-	const size_t pos = get_global_id(0);
-
-	TLabel label = runs[pos].lb;
 	
-	if(label){
-		TLabel curLabel = runs[label - 1].lb;
-		while(curLabel != label)
-		{
-			label = runs[curLabel - 1].lb;
-			curLabel = runs[label - 1].lb;
-		}
+	for (int pos = 0; pos < runNum[row]; ++pos)
+	{
+		TLabel label = runs[row * (width >> 1) + pos].lb;
 
-		runs[pos].lb = label;
+		if (label)
+		{
+			TLabel minLabel = MinRunLabel(runs, row * (width >> 1) + pos);
+
+			if (minLabel < label)
+			{
+				TLabel tmpLabel = runs[label - 1].lb;
+				runs[label - 1].lb = min(tmpLabel, minLabel);
+				*noChanges = 0;
+			}
+		}
 	}
 }
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void REAnalizeKernel(
+	__global TRun *runs, 
+	__global uint *runNum,
+	         uint width
+	)
+{
+	const size_t row = get_global_id(0);
+
+	for (int pos = 0; pos < runNum[row]; ++pos)
+	{
+		__global TRun *curRun = &runs[row * (width >> 1) + pos];
+		TLabel label = curRun->lb;
+
+		if (label){
+			TLabel curLabel = runs[label - 1].lb;
+			while (curLabel != label)
+			{
+				label = runs[curLabel - 1].lb;
+				curLabel = runs[label - 1].lb;
+			}
+
+			curRun->lb = label;
+		}
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 __kernel void RELabelKernel(
 	__global TRun	*runs,		// Image runs
+	__global uint	*runNum,	// Run count inside a row
 	__global TLabel	*labels,	// Image labels
 			 uint	width		// Image width
 	)
 {
-	const size_t pos = get_global_id(0);
+	const size_t row = get_global_id(0);
 
-	uint runWidth = width >> 1;
-	uint row = pos / runWidth * width;
+	uint runWidth = width >> 1;	
 	
-	if(runs[pos].lb) {
-		for(uint i = row + runs[pos].l; i < row + runs[pos].r + 1; ++i)
-		{
-			labels[i] = runs[pos].lb;
+	for (int run = 0; run < runNum[row]; ++run)
+	{
+		TRun curRun = runs[row * (width >> 1) + run];
+
+		if (curRun.lb) {
+			for (uint i = curRun.l; i < curRun.r + 1; ++i)
+			{
+				labels[row * width + i] = curRun.lb;
+			}
 		}
 	}
 }
+
+///////////////////////////////////////////////////////////////////////////////
 
 #endif /* LABELING_ALGS_CL_ */
