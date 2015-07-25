@@ -81,17 +81,6 @@ __kernel void DistrAnalizeKernel(__global TLabel *labels)
 // TOCLLabelEquivX2 kernels
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef struct
-{
-	TLabel lb;		// Super pixel label
-	char conn;		// Super pixel neighbor connectivity:
-	// 1 2 3
-	// 0 x 4
-	// 7 6 5
-} TSPixel;
-
-///////////////////////////////////////////////////////////////////////////////
-
 inline bool TestBit(__global const TPixel *pix, int px, int py, int xshift, int yshift, int w, int h)
 {
 	return pix[px + xshift + (py + yshift) * w];
@@ -103,13 +92,18 @@ inline ushort CheckNeibPixABC(bool C1, bool C2) {
 	return (C1 ? 3 : 0) | (C2 ? 0x18 : 0) | (C1 && C2) << 2;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 inline ushort CheckNeibPixD(bool C1, bool C2) {
 	return (C1 ? 3 : 0) << 9 | (C2 ? 3 : 0) | (C1 && C2) << 11;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+
 __kernel void LBEQ2_Init(
-	__global const TPixel *pixels,	// Image pixels
-	__global TSPixel *sPixels,	// Super pixels
+	__global const TPixel *pixels, // Image pixels		
+	__global TLabel *sLabels,	   // Super labels
+	__global char *sConn,	 	   // Super pixels connectivity
 	uint w, // Image width
 	uint h  // Image height
 	)
@@ -117,74 +111,72 @@ __kernel void LBEQ2_Init(
 	int spx = get_global_id(0);
 	int spy = get_global_id(1);
 
-	size_t spos = spx + spy * w / 2;
+	size_t spos = spx + spy * ceil((float)w / 2); // Super pixel position
 	size_t px = spx * 2, py = spy * 2;
 	size_t ppos = px + py * w;
 
-	TSPixel sPix;
-	sPix.lb = 0;
-	sPix.conn = 0;
+	char conn = 0;
 
 	// 2 3 4 5
 	// 1 a b 6
 	// 0 d c 7
 	// B A 9 8
 	ushort testPattern = 0;
-	if (pixels[ppos])         testPattern = CheckNeibPixABC(px, py);
-	if (pixels[ppos + 1])     testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
-	if (pixels[ppos + 1 + w]) testPattern |= CheckNeibPixABC(px + 2 < w, py + 2 < h) << 6;
-	if (pixels[ppos + w])     testPattern |= CheckNeibPixD(py + 2 < h, px);
+	if (pixels[ppos])										testPattern = CheckNeibPixABC(px, py);
+	if (px + 1 < w && pixels[ppos + 1])						testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
+	if (px + 1 < w && py + 1 < h && pixels[ppos + 1 + w])	testPattern |= CheckNeibPixABC(px + 2 < w, py + 2 < h) << 6;
+	if (py + 1 < h && pixels[ppos + w])						testPattern |= CheckNeibPixD(py + 2 < h, px);
 
 	if (testPattern) {
-		sPix.lb = spos + 1;
+		sLabels[spos] = spos + 1;
 
 		if ((testPattern & 1 << 0 && TestBit(pixels, px, py, -1, 1, w, h)) ||
 			(testPattern & 1 << 1 && TestBit(pixels, px, py, -1, 0, w, h)))
-			sPix.conn = 1;
+			conn = 1;
 		if ((testPattern & 1 << 2 && TestBit(pixels, px, py, -1, -1, w, h)))
-			sPix.conn |= 1 << 1;
+			conn |= 1 << 1;
 		if ((testPattern & 1 << 3 && TestBit(pixels, px, py, 0, -1, w, h)) ||
 			(testPattern & 1 << 4 && TestBit(pixels, px, py, 1, -1, w, h)))
-			sPix.conn |= 1 << 2;
+			conn |= 1 << 2;
 		if ((testPattern & 1 << 5 && TestBit(pixels, px, py, 2, -1, w, h)))
-			sPix.conn |= 1 << 3;
+			conn |= 1 << 3;
 		if ((testPattern & 1 << 6 && TestBit(pixels, px, py, 2, 0, w, h)) ||
 			(testPattern & 1 << 7 && TestBit(pixels, px, py, 2, 1, w, h)))
-			sPix.conn |= 1 << 4;
+			conn |= 1 << 4;
 		if ((testPattern & 1 << 8 && TestBit(pixels, px, py, 2, 2, w, h)))
-			sPix.conn |= 1 << 5;
+			conn |= 1 << 5;
 		if ((testPattern & 1 << 9 && TestBit(pixels, px, py, 1, 2, w, h)) ||
 			(testPattern & 1 << 10 && TestBit(pixels, px, py, 0, 2, w, h)))
-			sPix.conn |= 1 << 6;
+			conn |= 1 << 6;
 		if ((testPattern & 1 << 11 && TestBit(pixels, px, py, -1, 2, w, h)))
-			sPix.conn |= 1 << 7;
+			conn |= 1 << 7;
 	}
 
-	sPixels[spos] = sPix;
+	sConn[spos] = conn;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-inline TLabel GetBlockLabel(__global const TSPixel *sPix, bool conn, int px, int py, int xshift, int yshift, int w, int h)
+inline TLabel GetBlockLabel(__global const TLabel *sPix, bool conn, int px, int py,
+	int xshift, int yshift, int sWidth)
 {
-	return conn ? sPix[px + xshift + (py + yshift) * w].lb : UINT_MAX;
+	return conn ? sPix[px + xshift + (py + yshift) * sWidth] : UINT_MAX;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-TLabel MinSPixLabel(__global const TSPixel *sPix, int x, int y, int w, int h)
+TLabel MinSPixLabel(__global const TLabel *sLabels, char conn, int x, int y, int sWidth)
 {
 	TLabel minLabel;
-	uchar conn = sPix[x + y * w].conn;
 
-	minLabel = min(GetBlockLabel(sPix, conn & 1 << 0, x, y, -1, 0, w, h),
-		min(GetBlockLabel(sPix, conn & 1 << 1, x, y, -1, -1, w, h),
-		min(GetBlockLabel(sPix, conn & 1 << 2, x, y, 0, -1, w, h),
-		min(GetBlockLabel(sPix, conn & 1 << 3, x, y, 1, -1, w, h),
-		min(GetBlockLabel(sPix, conn & 1 << 4, x, y, 1, 0, w, h),
-		min(GetBlockLabel(sPix, conn & 1 << 5, x, y, 1, 1, w, h),
-		min(GetBlockLabel(sPix, conn & 1 << 6, x, y, 0, 1, w, h),
-		GetBlockLabel(sPix, conn & 1 << 7, x, y, -1, 1, w, h))))))));
+	minLabel = min(GetBlockLabel(sLabels, conn & 1 << 0, x, y, -1, 0, sWidth),
+		min(GetBlockLabel(sLabels, conn & 1 << 1, x, y, -1, -1, sWidth),
+		min(GetBlockLabel(sLabels, conn & 1 << 2, x, y, 0, -1, sWidth),
+		min(GetBlockLabel(sLabels, conn & 1 << 3, x, y, 1, -1, sWidth),
+		min(GetBlockLabel(sLabels, conn & 1 << 4, x, y, 1, 0, sWidth),
+		min(GetBlockLabel(sLabels, conn & 1 << 5, x, y, 1, 1, sWidth),
+		min(GetBlockLabel(sLabels, conn & 1 << 6, x, y, 0, 1, sWidth),
+		GetBlockLabel(sLabels, conn & 1 << 7, x, y, -1, 1, sWidth))))))));
 
 	return minLabel;
 }
@@ -192,23 +184,25 @@ TLabel MinSPixLabel(__global const TSPixel *sPix, int x, int y, int w, int h)
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void LBEQ2_Scan(
-	__global TSPixel *sPixels,	// Super pixels
-	uint sWidth,				// Super pixels width
-	uint sHeight,				// Super pixels height
+	__global TLabel *sLabels,	// Super labels
+	__global char *sConn,		// Super pixels connectivity	
 	__global char *noChanges	// Shows if no pixels were changed
 	)
 {
-	const size_t x = get_global_id(0);
-	const size_t y = get_global_id(1);
+	const size_t spx = get_global_id(0);
+	const size_t spy = get_global_id(1);
+	const size_t sWidth = get_global_size(0);
+	const size_t spos = spx + spy * sWidth;
 
-	TLabel label = sPixels[x + y * sWidth].lb;
+	TLabel label = sLabels[spos];
+	char conn = sConn[spos];
 
 	if (label) {
-		TLabel minLabel = MinSPixLabel(sPixels, x, y, sWidth, sHeight);
+		TLabel minLabel = MinSPixLabel(sLabels, conn, spx, spy, sWidth);
 
 		if (minLabel < label) {
-			TLabel tmpLabel = sPixels[label - 1].lb;
-			sPixels[label - 1].lb = min(tmpLabel, minLabel);
+			TLabel tmpLabel = sLabels[label - 1];
+			sLabels[label - 1] = min(tmpLabel, minLabel);
 			*noChanges = 0;
 		}
 	}
@@ -216,21 +210,21 @@ __kernel void LBEQ2_Scan(
 
 ///////////////////////////////////////////////////////////////////////////////
 
-__kernel void LBEQ2_Analyze(__global TSPixel *sPixels)
+__kernel void LBEQ2_Analyze(__global TLabel *sLabels)
 {
 	const size_t sPos = get_global_id(0);
 
-	TLabel label = sPixels[sPos].lb;
+	TLabel label = sLabels[sPos];
 
 	if (label){
-		TLabel curLabel = sPixels[label - 1].lb;
+		TLabel curLabel = sLabels[label - 1];
 		while (curLabel != label)
 		{
-			label = sPixels[curLabel - 1].lb;
-			curLabel = sPixels[label - 1].lb;
+			label = sLabels[curLabel - 1];
+			curLabel = sLabels[label - 1];
 		}
 
-		sPixels[sPos].lb = label;
+		sLabels[sPos] = label;
 	}
 }
 
@@ -239,18 +233,17 @@ __kernel void LBEQ2_Analyze(__global TSPixel *sPixels)
 __kernel void LBEQ2_SetFinalLabels(
 	__global TPixel *pixels,
 	__global TLabel *labels,
-	__global TSPixel *sPixels,
-	uint width)
+	__global TLabel *sLabels
+	)
 {
 	const size_t x = get_global_id(0);
 	const size_t y = get_global_id(1);
-	const size_t sPos = (x >> 1) + (y >> 1) * (width >> 1);
-	const size_t pos = x + y * width;
-
-	TLabel label = sPixels[sPos].lb;
+	const size_t w = get_global_size(0);
+	const size_t spos = (x >> 1) + (y >> 1) * ceil((float)w / 2);
+	const size_t pos = x + y * w;
 
 	if (pixels[pos]) {
-		labels[pos] = label;
+		labels[pos] = sLabels[spos];
 	}
 }
 

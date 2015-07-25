@@ -239,31 +239,25 @@ namespace LabelingTools
 		TOCLLabelEquivalenceX2(bool runOnGPU = true);
 
 	private:
-		typedef struct
-		{
-			TLabel lb;		// Super pixel label
-			char conn[8];	// Super pixel neighbor connectivity
-		} TSPixel;
-
 		cl_kernel initKernel,
 				  scanKernel,
 				  analyzeKernel,
-				  setFinalLabelsKernel;
-
-		cl_mem sPixels;
-		//TOCLBuffer<TSPixel> *sPixels;
+				  setFinalLabelsKernel;				
 
 		TOCLBuffer<TPixel> *pix;
 		TOCLBuffer<TLabel> *lb;
+
+		cl_mem sLabels, sConn;
 
 		unsigned int imgWidth, imgHeight, spWidth, spHeight;
 
 		virtual void InitKernels(void) override;
 		virtual void FreeKernels(void) override;
 
-		void InitSPixels(TCoherence coh);
+		void InitSPixels(void);
 		void LabelSPixels(void);
 		void SetFinalLabels(void);
+		void FreeSPixels(void);
 
 		void DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
 			unsigned int imgHeight, TCoherence Coherence) override;

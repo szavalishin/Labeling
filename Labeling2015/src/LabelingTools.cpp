@@ -25,7 +25,7 @@ namespace LabelingTools
 
 		watch_.reset();
 		watch_.start();
-
+		
 		DoLabel(binImg, labels, threads, coh);
 
 		watch_.stop();
@@ -99,7 +99,9 @@ namespace LabelingTools
 		THROW_IF(!Initialized, "IOCLLabeling::Label : OpenCL device is not initialized");
 		THROW_IF(pixels.empty(), "IOCLLabeling::Label : Input image is empty");
 
-		auto binImg = RGB2Gray(pixels);
+		auto binImg = cv::Mat(cv::Size((pixels.cols >> 5 << 5) + 32, (pixels.rows >> 5 << 5) + 32), CV_8UC1);
+		RGB2Gray(pixels).copyTo(binImg(cv::Rect(0, 0, pixels.cols, pixels.rows)));
+		
 		labels = cv::Mat::zeros(binImg.rows, binImg.cols, CV_32SC1);
 
 		// Initialization

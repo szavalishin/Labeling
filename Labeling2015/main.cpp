@@ -28,6 +28,7 @@ struct Options
 	std::string outPath;
 
 	int numThreads = MAX_THREADS;
+	int cycles = 1;
 
 	std::shared_ptr<ILabeling> labelingAlg;
 
@@ -42,7 +43,13 @@ TImage ProcessImage(const TImage &inImg, Options& opts, TTime& time)
 {
 	TImage labels;
 
-	time = opts.labelingAlg->Label(inImg, labels, opts.numThreads, opts.coh);
+	time = 0;
+	for (int i = 0; i < opts.cycles; ++i)
+	{
+		time += opts.labelingAlg->Label(inImg, labels, opts.numThreads, opts.coh);
+	}
+
+	time = static_cast<double>(time) / opts.cycles;
 
 	return labels;
 }
@@ -118,18 +125,18 @@ void ProcessImages(Options &opts)
 
 		TImage img = cv::imread(fName);		
 
-		cout << "Processing image " << ++count << "/" << imgs.size() << " (" << fileName.c_str() << ") ";// \n";
+		cout << "Processing image " << ++count << "/" << imgs.size() << " (" << fileName.c_str() << ")";// \n";
 
-		TTime imgTime;
+		TTime imgTime;			
 		img = ProcessImage(img, opts, imgTime);
 
 		cv::imwrite(opts.outPath + "/" + fileName, LabelsToRGB(img));
 		time += imgTime;
 
-		cout << imgTime << "\n";
+		cout << " " << static_cast<float>(imgTime) / 1000 << " ms\n";
 	}
 
-	cout << "\nAverage processing time: " << float(time) / count / 1000 << " ms\n";
+	cout << "\nAverage processing time: " << static_cast<float>(time) / count / opts.cycles / 1000 << " ms\n";
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -154,6 +161,7 @@ void PrintHelp(void)
 			"                     ocl-runeq  : OpenCL Run equivalence\n"
 			"  -g             : Use GPU for OpenCL (CPU otherwise)\n"
 			"  -j <threads>   : Set numer of parallel threads\n"
+			"  -l <cycles>    : Set numer of cycles for each image (1 default)\n"
 			"  -c <connect>	  : Set connectivity (4 or 8)\n"
 			"  -h             : Print this help\n\n";
 }
@@ -219,8 +227,14 @@ Options ParseInput(int argc, char** argv)
 		if (!strcmp(argv[i], "-o")) { opts.outPath = ReadData(i); continue; }
 		if (!strcmp(argv[i], "-j")) { opts.numThreads = std::stoi(ReadData(i)); continue; }
 		if (!strcmp(argv[i], "-g")) { opts.useGPU = true; continue; }
+		if (!strcmp(argv[i], "-l")) { opts.cycles = std::stoi(ReadData(i)); continue; }
 		if (!strcmp(argv[i], "-c")) { opts.coh = ReadData(i) == "4" ? COH_4 : COH_8; continue; }
 		if (!strcmp(argv[i], "-h")) { PrintHelp(); opts.quickExit = true; return opts; }
+
+		std::stringstream msg;
+		msg << "Wrong input parameters (unknown key " << argv[i] << ")";
+
+		throw std::exception(msg.str().c_str());
 	}
 
 	opts.labelingAlg = SetLabelingAlg(algName, opts.useGPU);

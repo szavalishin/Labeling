@@ -9,6 +9,8 @@ README*
 *.pdb
 *.tlog
 *.obj
+*.bmp
+*.png
 # Compiled source #
 ###################
 *.com

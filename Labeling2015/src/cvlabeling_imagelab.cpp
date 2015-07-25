@@ -20,7 +20,7 @@
 
 #include "cvlabeling_imagelab.h"
 #include <opencv/cxmisc.h>
-
+#include "stopwatch_win.h""
 static void /*CvStatus*/ icvLabelImage (IplImage* srcImage, IplImage* dstImage, unsigned char byF, int *numLabels);
 
 // fast block based labeling with decision tree optimization
@@ -54,10 +54,10 @@ static void/*CvStatus*/ icvLabelImage (IplImage* srcImage, IplImage* dstImage, u
 	int *aRTable = new int[w*h/4];
 	int *aNext = new int[w*h/4];
 	int *aTail = new int[w*h/4];
-
+	
 	unsigned char *img = (unsigned char *)srcImage->imageData;
 	char *imgOut = (char *)dstImage->imageData;
-
+	
 	for(int y=0; y<h; y+=2) {
 		for(int x=0; x<w; x+=2) {
 
@@ -1581,7 +1581,7 @@ fine:		INT_PTR(imgOut[x*4+y*wd]) = lx;
 
 	// output the number of labels
 	*numLabels = iCurLabel;
-
+	
 	delete aRTable;
 	delete aNext;
 	delete aTail;
