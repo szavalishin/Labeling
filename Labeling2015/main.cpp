@@ -39,17 +39,51 @@ struct Options
 
 ///////////////////////////////////////////////////////////////////////////////
 
-TImage ProcessImage(const TImage &inImg, Options& opts, TTime& time)
+struct ImgTime
+{			
+	void Reset(void) { min = UINT_MAX; c = avg = max = 0; }	
+	
+	TTime Min(void) const { return min != UINT_MAX ? min : 0; }
+	TTime Max(void) const { return max; }
+	TTime Avg(void) const { return static_cast<float>(avg) / c; }
+	
+	void Add(TTime t) {
+		if (min > t) min = t;
+		if (max < t) max = t;
+		avg += t;
+		++c;
+	}
+
+	ImgTime(void) { Reset(); }
+	ImgTime& operator+(const ImgTime& other) {
+		this->avg += other.avg;
+		this->min = std::min(this->min, other.min);
+		this->max = std::max(this->max, other.max);
+		this->c += other.c;
+
+		return *this;
+	}
+	ImgTime& operator+=(const ImgTime& other) {
+		return operator+(other);
+	}
+
+private:
+	TTime min, avg, max;
+	size_t c = 0;
+};
+
+///////////////////////////////////////////////////////////////////////////////
+
+TImage ProcessImage(const TImage &inImg, Options& opts, ImgTime& time)
 {
 	TImage labels;
 
-	time = 0;
+	time.Reset();
 	for (int i = 0; i < opts.cycles; ++i)
 	{
-		time += opts.labelingAlg->Label(inImg, labels, opts.numThreads, opts.coh);
-	}
-
-	time = static_cast<double>(time) / opts.cycles;
+		TTime curTime = opts.labelingAlg->Label(inImg, labels, opts.numThreads, opts.coh);		
+		time.Add(curTime);
+	}	
 
 	return labels;
 }
@@ -117,7 +151,9 @@ void ProcessImages(Options &opts)
 	auto imgs = FindFiles(opts.inPath);
 
 	size_t count = 0;
-	TTime time = 0;
+	ImgTime time;
+
+	bool wantWrite = is_directory(opts.outPath);
 
 	for (auto fName: imgs)
 	{
@@ -127,16 +163,20 @@ void ProcessImages(Options &opts)
 
 		cout << "Processing image " << ++count << "/" << imgs.size() << " (" << fileName.c_str() << ")";// \n";
 
-		TTime imgTime;			
+		ImgTime imgTime;			
 		img = ProcessImage(img, opts, imgTime);
 
-		cv::imwrite(opts.outPath + "/" + fileName, LabelsToRGB(img));
+		if(wantWrite)
+			cv::imwrite(opts.outPath + "/" + fileName, LabelsToRGB(img));
+
 		time += imgTime;
 
-		cout << " " << static_cast<float>(imgTime) / 1000 << " ms\n";
+		cout << " " << static_cast<float>(imgTime.Avg()) / 1000 << " ms\n";
 	}
 
-	cout << "\nAverage processing time: " << static_cast<float>(time) / count / opts.cycles / 1000 << " ms\n";
+	cout << "\nMin processing time: " << static_cast<float>(time.Min()) / 1000 << " ms\n";
+	cout << "Avg processing time: " << static_cast<float>(time.Avg()) / 1000 << " ms\n";	
+	cout << "Max processing time: " << static_cast<float>(time.Max()) / 1000 << " ms\n";
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -248,7 +288,7 @@ void Run(Options &opts)
 {
 	if (opts.quickExit) return;
 
-	if (is_directory(opts.inPath) && is_directory(opts.outPath))
+	if (is_directory(opts.inPath))
 	{
 		ProcessImages(opts);
 	}
@@ -256,10 +296,10 @@ void Run(Options &opts)
 	{
 		std::string fileName(path(opts.inPath).filename().string());
 
-		TTime time;
+		ImgTime time;
 		TImage im = ProcessImage(cv::imread(opts.inPath), opts, time);
 
-		cout << "Image: " << fileName.c_str() << "\nProcessing time: " << float(time) / 1000 << " ms\n";			
+		cout << "Image: " << fileName.c_str() << "\nProcessing time: " << float(time.Avg()) / 1000 << " ms\n";			
 
 		if (is_directory(opts.outPath))
 		{
