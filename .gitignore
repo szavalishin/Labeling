@@ -2,8 +2,8 @@ build*
 bin/*
 obj/*
 lib/*
-DemoApplication/Release/*
-DemoApplication/Debug/*
+Release/*
+Debug/*
 *.user
 README*
 *.pdb
@@ -11,6 +11,13 @@ README*
 *.obj
 *.bmp
 *.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.nvact
+*/Debug/*
+*/Release/*
 # Compiled source #
 ###################
 *.com

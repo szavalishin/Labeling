@@ -33,7 +33,7 @@ namespace LabelingTools
 	};
 
 	///////////////////////////////////////////////////////////////////////////////
-	// TOpenCVLabeing :: OpenCV 3+ labeling algorithm
+	// TOpenCVLabeing :: OpenCV 3.x.x labeling algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
 	class TOpenCVLabeling : public ILabeling
@@ -312,6 +312,27 @@ namespace LabelingTools
 		void FindNeibRuns(void);
 		void Scan(void);
 		void SetFinalLabels(void);
+	};
+
+	///////////////////////////////////////////////////////////////////////////////
+	// TOCLLabelDistribution3D :: OCL Label Equivalence algorithm for 3D images
+	///////////////////////////////////////////////////////////////////////////////
+
+	class TOCLLabelDistribution3D : public IOCLLabeling
+	{
+	public:
+		TOCLLabelDistribution3D(bool runOnGPU = true);
+
+	private:
+		cl_kernel initKernel,
+				  scanKernel,
+				  analyzeKernel;
+
+		virtual void InitKernels(void) override;
+		virtual void FreeKernels(void) override;
+
+		void DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
+			unsigned int imgHeight, TCoherence Coherence) override;
 	};
 
 } /* LabelingTools */

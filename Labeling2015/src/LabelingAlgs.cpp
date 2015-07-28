@@ -1033,7 +1033,7 @@ namespace LabelingTools
 	void TOCLLabelEquivalenceX2::SetFinalLabels(void)
 	{
 		cl_int clError;
-		size_t workSize[] = { imgWidth, imgHeight };
+		size_t workSize[] = { imgWidth, imgHeight };		
 
 		clError = clSetKernelArg(setFinalLabelsKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
 		clError |= clSetKernelArg(setFinalLabelsKernel, 1, sizeof(cl_mem), (void*)&lb->buffer);
@@ -1255,6 +1255,87 @@ namespace LabelingTools
 
 		clReleaseMemObject(runs);
 		clReleaseMemObject(runNum);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	// TOCLLabelDistribution3D declaration
+	///////////////////////////////////////////////////////////////////////////////
+
+	TOCLLabelDistribution3D::TOCLLabelDistribution3D(bool runOnGPU)
+		: initKernel(NULL),
+		  scanKernel(NULL),
+		  analyzeKernel(NULL)
+	{
+		cl_device_type devType;
+		if (runOnGPU)
+			devType = CL_DEVICE_TYPE_GPU;
+		else
+			devType = CL_DEVICE_TYPE_CPU;
+
+		Init(devType, "", "LabelingAlgs.cl");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelDistribution3D::InitKernels(void)
+	{
+		cl_int clError;
+
+		initKernel = clCreateKernel(State.program, "LBEQ3D_InitKernel", &clError);
+		scanKernel = clCreateKernel(State.program, "LBEQ3D_ScanKernel", &clError);
+		analyzeKernel = clCreateKernel(State.program, "LBEQ3D_AnalyzeKernel", &clError);
+
+		THROW_IF_OCL(clError, "TOCLLabelDistribution3D::InitKernels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelDistribution3D::FreeKernels(void)
+	{
+		if (initKernel)		clReleaseKernel(initKernel);
+		if (scanKernel)		clReleaseKernel(scanKernel);
+		if (analyzeKernel)	clReleaseKernel(analyzeKernel);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLLabelDistribution3D::DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
+		unsigned int imgHeight, TCoherence coh)
+	{
+		cl_int clError;
+		size_t const workSize = imgWidth * imgHeight;
+
+		// Initialization
+		clError = clSetKernelArg(initKernel, 0, sizeof(cl_mem), (void*)&pixels.buffer);
+		clError |= clSetKernelArg(initKernel, 1, sizeof(cl_mem), (void*)&labels.buffer);
+		THROW_IF_OCL(clError, "TOCLLabelDistribution3D::DoOCLLabel");
+
+		clError = clEnqueueNDRangeKernel(State.queue, initKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
+		THROW_IF_OCL(clError, "TOCLLabelDistribution3D::DoOCLLabel");
+
+		// Labeling
+		TOCLBuffer<char> noChanges(*this, WRITE_ONLY, 1);
+
+		clError = clSetKernelArg(scanKernel, 0, sizeof(cl_mem), (void*)&labels.buffer);
+		clError |= clSetKernelArg(scanKernel, 1, sizeof(unsigned int), (void*)&imgWidth);
+		clError |= clSetKernelArg(scanKernel, 2, sizeof(unsigned int), (void*)&imgHeight);
+		clError |= clSetKernelArg(scanKernel, 3, sizeof(TCoherence), (void*)&coh);
+		clError |= clSetKernelArg(scanKernel, 4, sizeof(cl_mem), (void*)&noChanges.buffer);
+		clError |= clSetKernelArg(analyzeKernel, 0, sizeof(cl_mem), (void*)&labels.buffer);
+		THROW_IF_OCL(clError, "TOCLLabelDistribution3D::DoOCLLabel");
+
+		unsigned int iter = 0;
+		while (true) {
+			noChanges[0] = 1;
+			noChanges.Push();
+
+			clError |= clEnqueueNDRangeKernel(State.queue, scanKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
+
+			noChanges.Pull();
+			if (noChanges[0]) break;
+
+			clError |= clEnqueueNDRangeKernel(State.queue, analyzeKernel, 1, NULL, &workSize, NULL, 0, NULL, NULL);
+		}
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

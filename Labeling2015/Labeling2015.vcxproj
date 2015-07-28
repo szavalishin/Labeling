@@ -68,6 +68,12 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>opencv_core300d.lib;opencv_imgcodecs300d.lib;opencv_imgproc300d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(ProjectDir)src\*.cl" "$(SolutionDir)$(Configuration)"</Command>
+    </PostBuildEvent>
+    <PostBuildEvent>
+      <Message>Copy .CL files to work directory</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -92,6 +98,10 @@
       <OptimizeReferences>true</OptimizeReferences>
       <AdditionalDependencies>opencv_core300.lib;opencv_imgcodecs300.lib;opencv_imgproc300.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PostBuildEvent>
+      <Command>copy /Y "$(ProjectDir)src\*.cl" "$(SolutionDir)$(Configuration)"</Command>
+      <Message>Copy .CL files to work directory</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
@@ -114,8 +124,7 @@
     <ClCompile Include="src\stopwatch_win.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="LabelingAlgs.cl" />
-    <None Include="OCLCommons.cl" />
+    <None Include="src\LabelingAlgs.cl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
