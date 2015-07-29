@@ -6,6 +6,7 @@
 #include "LabelingTools.hpp"
 
 #include <opencv2/imgproc/imgproc.hpp>
+#include <array>
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -149,6 +150,65 @@ namespace LabelingTools
 	IOCLLabeling::~IOCLLabeling(void)
 	{
 		TerminateOCL();
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	// IOCLLabeling3D declaration
+	///////////////////////////////////////////////////////////////////////////////
+
+	TTime IOCLLabeling3D::Label(const TImage& pixels, TImage& labels, char threads, TCoherence coh)
+	{
+		THROW_IF(!Initialized, "IOCLLabeling3D::Label : OpenCL device is not initialized");
+		THROW_IF(pixels.empty(), "IOCLLabeling3D::Label : Input image is empty");
+		THROW_IF(pixels.dims != 3, "IOCLLabeling3D::Label : Input image is not a 3D image");
+		THROW_IF(coh != TCoherence::COH_DEFAULT, "IOCLLabeling3D::Label : Only default coherence is supported for 3D labeling");
+
+		int sz[3]; 
+
+		PlaneIterator itPix(pixels);
+
+		for (int i = 0; i < pixels.dims; ++i)
+			sz[i] = (pixels.size[i] >> 5 << 5) + 32; // 32 is NVidia specific (try 64 for AMD)
+		
+		auto binImg = TImage(3, sz, CV_8U, cv::Scalar(0));
+		PlaneIterator itBin(binImg);	
+
+		for (int i = 0; i < itPix.NPlanes(); ++i)
+		{
+			const TImage pixPlane = itPix.Plane();
+			TImage binPlane = itBin.Plane();
+
+			RGB2Gray(pixPlane).copyTo(binPlane(cv::Rect(0, 0, pixPlane.rows, pixPlane.cols)));
+
+			++itPix;
+			++itBin;
+		}
+
+		labels = cv::Mat::zeros(3, sz, CV_32SC1);
+
+		// Initialization
+		TOCLBuffer<TPixel> oclPixels(*this, TOCLBufferType::READ_ONLY, binImg.total());
+		TOCLBuffer<TLabel> oclLabels(*this, TOCLBufferType::READ_WRITE, labels.total());
+
+		memset(&oclLabels.Buffer()[0], 0, sizeof(oclLabels.Buffer()[0]) * oclLabels.Buffer().size());
+		oclLabels.Push();
+
+		memcpy(oclPixels.Buffer().data(), binImg.data, sizeof(TPixel) * binImg.total());
+		oclPixels.Push();
+
+		watch_.reset();
+		watch_.start();
+
+		// Actual Code
+		DoOCLLabel3D(oclPixels, oclLabels, labels.size[0], labels.size[1], labels.size[2]);
+
+		// Post Conditions
+		watch_.stop();
+
+		oclLabels.Pull();
+		memcpy(labels.data, oclLabels.Buffer().data(), sizeof(TLabel) * labels.total());
+
+		return watch_.getTime() * 1000;
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

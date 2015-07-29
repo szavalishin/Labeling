@@ -91,7 +91,7 @@ struct Algs
 	const std::function<std::shared_ptr<ILabeling>(void)> cpu ;
 	const std::function<std::shared_ptr<IOCLLabeling>(bool)> ocl;
 	const std::function<std::shared_ptr<ILabeling>(void)> cpu3d ;
-	const std::function<std::shared_ptr<IOCLLabeling>(bool)> ocl3d;
+	const std::function<std::shared_ptr<IOCLLabeling3D>(bool)> ocl3d;
 };
 
 static std::map<std::string, Algs> ALG_LIST;
@@ -103,7 +103,8 @@ void InitAlgs(void)
 	ALG_LIST.emplace(std::string("bin"), Algs{ "Simple binarization", 
 												&std::make_shared<TBinLabeling>, 
 												&std::make_shared<TOCLBinLabeling, bool>, 
-												nullptr, nullptr });
+												nullptr, 
+												&std::make_shared<TOCLBinLabeling3D, bool> });
 	ALG_LIST.emplace(std::string("he-run"), Algs{ "Run labeling by He et.al.", 
 												&std::make_shared<TRunLabeling>, 
 												nullptr, nullptr, nullptr });
@@ -116,7 +117,8 @@ void InitAlgs(void)
 	ALG_LIST.emplace(std::string("lbeq"), Algs{ "Label equivalence by Kalentev et.al.", 
 												&std::make_shared<TLabelDistribution>, 
 												&std::make_shared<TOCLLabelDistribution, bool>, 
-												nullptr, nullptr });
+												nullptr, 
+												&std::make_shared<TOCLLabelDistribution3D, bool> });
 	ALG_LIST.emplace(std::string("bleq"), Algs{ "Block equivalence by Zavalishin et.al.", 
 												&std::make_shared<TLabelEquivalenceX2>, 
 												std::make_shared<TOCLLabelEquivalenceX2, bool>, 
@@ -174,30 +176,31 @@ TImage Read3DImage(const std::string &inPath)
 		auto files = FindFiles(inPath);
 		
 		TImage outIm, curIm;
-		std::vector<cv::Range> ranges(3);
-		int curPlane = 0;
+
+		PlaneIterator itPlanes;
 
 		for (auto fName : files)
-		{
-			std::string fileName(path(fName).filename().string());
-			curIm = cv::imread(fileName, cv::IMREAD_GRAYSCALE);
+		{			
+			curIm = cv::imread(fName, cv::IMREAD_GRAYSCALE);
+
+			if (curIm.empty()) 
+				continue;
 
 			if (outIm.empty()) 
 			{
 				int sz[] = {curIm.rows, curIm.cols, files.size()};
 				outIm = TImage(3, sz, CV_8U);
 
-				ranges[0].start = ranges[1].start = 0;
-				ranges[0].end = curIm.rows;
-				ranges[1].end = curIm.cols;
+				itPlanes.Init(outIm);
 			}
 			
-			if (curIm.rows != outIm.rows || curIm.cols != outIm.cols) {
+			if (curIm.rows != outIm.size[0] || curIm.cols != outIm.size[1]) {
 				throw std::exception("Cannot read 3D image: slice sizes do not match");
 			}
-
-			ranges[2].start = ranges[2].end = curPlane++;
-			curIm.copyTo(outIm(ranges.data()));
+			
+			cv::Mat p = itPlanes.Plane();
+			curIm.copyTo(p);
+			++itPlanes;
 		}
 
 		return outIm;
@@ -284,17 +287,13 @@ void Write3DLabels(const TImage &labels, const std::string outPath)
 {
 	create_directories(outPath);
 
-	std::vector<cv::Range> ranges(3);
-	ranges[0].start = ranges[1].start = 0;
-	ranges[0].end = labels.rows;
-	ranges[1].end = labels.cols;
-
+	PlaneIterator itPlanes(labels);
 	ColorMap colorMap;
 
 	for (int i = 0; i < labels.size[2]; ++i)
-	{
-		ranges[2].start = ranges[2].end = i;
-		cv::imwrite(outPath + '/' + std::to_string(i) + ".png", LabelsToRGB(labels(ranges.data()), colorMap));
+	{		
+		cv::imwrite(outPath + '/' + std::to_string(i) + ".png", LabelsToRGB(itPlanes.Plane(), colorMap));
+		++itPlanes;
 	}
 }
 
@@ -371,28 +370,18 @@ std::shared_ptr<ILabeling> SetLabelingAlg(const std::string &algName, const Opti
 	bool label3D = opts.label3D;
 
 	auto algCreator = ALG_LIST.find(algName);
-	std::function<std::shared_ptr<ILabeling>(void)> creatorFunc;
-	std::function<std::shared_ptr<IOCLLabeling>(bool)> oclCreatorFunc;
-
 	if (algCreator != ALG_LIST.end())
 	{
 		if (!label3D)
 			if (!useOCL)
-				creatorFunc = algCreator->second.cpu;
+				return algCreator->second.cpu != nullptr ? algCreator->second.cpu() : nullptr;
 			else
-				oclCreatorFunc = algCreator->second.ocl;
+				return algCreator->second.ocl != nullptr ? algCreator->second.ocl(useGPU) : nullptr;
 		else
 			if (!useOCL)
-				creatorFunc = algCreator->second.cpu3d;
+				return algCreator->second.cpu != nullptr ? algCreator->second.cpu() : nullptr;
 			else
-				oclCreatorFunc = algCreator->second.ocl3d;
-
-		if (!useOCL && creatorFunc != nullptr)
-			return creatorFunc();
-		else if (oclCreatorFunc != nullptr)
-			return oclCreatorFunc(useGPU);
-
-		throw std::exception("Choosen algorithm doesn't support specified capabilities");
+				return algCreator->second.ocl3d != nullptr ? algCreator->second.ocl3d(useGPU) : nullptr;				
 	}
 	
 	throw std::exception("No labeling algorithm specified");
@@ -445,6 +434,7 @@ Options ParseInput(int argc, char** argv)
 	}
 
 	opts.labelingAlg = SetLabelingAlg(algName, opts);
+	THROW_IF(opts.labelingAlg == nullptr, "Chosen algorithm doesn't support specified capabilities");
 
 	return opts;
 }

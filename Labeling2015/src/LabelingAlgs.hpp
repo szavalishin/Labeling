@@ -36,7 +36,7 @@ namespace LabelingTools
 	// TOpenCVLabeing :: OpenCV 3.x.x labeling algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TOpenCVLabeling : public ILabeling
+	class TOpenCVLabeling final : public ILabeling
 	{
 	private:
 		virtual void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) override;
@@ -46,7 +46,7 @@ namespace LabelingTools
 	// TBlockGranaLabeing :: Grana's block labeling
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TBlockGranaLabeling : public ILabeling
+	class TBlockGranaLabeling final : public ILabeling
 	{
 	private:
 		virtual void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) override;
@@ -66,7 +66,7 @@ namespace LabelingTools
 
 	typedef vector<TRun*> TRuns; // Represents runs array	
 
-	class TRunLabeling : public ILabeling
+	class TRunLabeling final : public ILabeling
 	{
 	public:
 		unsigned int Top;
@@ -98,7 +98,7 @@ namespace LabelingTools
 	// TLabelDistribution :: OpenMP Label Equivalence algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TLabelDistribution : public ILabeling
+	class TLabelDistribution final : public ILabeling
 	{
 	private:
 		virtual void DoLabel(const TImage& pixels, TImage& labels, char threads, TCoherence coh) override;
@@ -125,7 +125,7 @@ namespace LabelingTools
 						// 7 6 5
 	} TSPixel;
 
-	class TLabelEquivalenceX2 : public ILabeling
+	class TLabelEquivalenceX2 final : public ILabeling
 	{	
 	private:				
 		struct TSPixels {
@@ -152,7 +152,7 @@ namespace LabelingTools
 	// TRunEqivLabeling :: OpenMP Run Equivalence algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TRunEqivLabeling : public ILabeling
+	class TRunEqivLabeling final : public ILabeling
 	{
 	private:		
 		typedef struct
@@ -212,7 +212,7 @@ namespace LabelingTools
 	// TOCLLabelDistribution :: OCL Label Equivalence algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TOCLLabelDistribution : public IOCLLabeling 
+	class TOCLLabelDistribution final : public IOCLLabeling
 	{
 	public:
 		TOCLLabelDistribution(bool runOnGPU = true);
@@ -233,7 +233,7 @@ namespace LabelingTools
 	// TOCLLabelEquivalenceX2 :: OCL Label Equivalence X2 algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TOCLLabelEquivalenceX2 : public IOCLLabeling
+	class TOCLLabelEquivalenceX2 final : public IOCLLabeling
 	{
 	public:
 		TOCLLabelEquivalenceX2(bool runOnGPU = true);
@@ -267,7 +267,7 @@ namespace LabelingTools
 	// TOCLRunEquivLabeling :: OCL Run Equivalence algorithm
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TOCLRunEquivLabeling : public IOCLLabeling 
+	class TOCLRunEquivLabeling final : public IOCLLabeling
 	{
 	public:
 		TOCLRunEquivLabeling(bool runOnGPU = true);		
@@ -315,10 +315,28 @@ namespace LabelingTools
 	};
 
 	///////////////////////////////////////////////////////////////////////////////
+	// TOCLBinLabeling3D :: OCL Binarization for 3D images
+	///////////////////////////////////////////////////////////////////////////////
+
+	class TOCLBinLabeling3D final : public IOCLLabeling3D
+	{
+	public:
+		TOCLBinLabeling3D(bool runOnGPU = true);
+
+	private:
+		cl_kernel binKernel;
+
+		void DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, uint imgWidth, uint imgHeight, uint imgDepth) override;
+
+		virtual void InitKernels(void) override;
+		virtual void FreeKernels(void) override;
+	};
+
+	///////////////////////////////////////////////////////////////////////////////
 	// TOCLLabelDistribution3D :: OCL Label Equivalence algorithm for 3D images
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TOCLLabelDistribution3D : public IOCLLabeling
+	class TOCLLabelDistribution3D final : public IOCLLabeling3D
 	{
 	public:
 		TOCLLabelDistribution3D(bool runOnGPU = true);
@@ -331,8 +349,7 @@ namespace LabelingTools
 		virtual void InitKernels(void) override;
 		virtual void FreeKernels(void) override;
 
-		void DoOCLLabel(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, unsigned int imgWidth,
-			unsigned int imgHeight, TCoherence Coherence) override;
+		void DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, uint imgWidth, uint imgHeight, uint imgDepth) override;
 	};
 
 } /* LabelingTools */
