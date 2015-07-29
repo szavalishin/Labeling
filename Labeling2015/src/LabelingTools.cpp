@@ -36,7 +36,7 @@ namespace LabelingTools
 
 	///////////////////////////////////////////////////////////////////////////////
 
-	TImage ILabeling::RGB2Gray(const TImage& img) const
+	TImage ILabeling::RGB2Gray(const TImage& img)
 	{
 		TImage binImg = img;
 
@@ -126,6 +126,7 @@ namespace LabelingTools
 
 		oclLabels.Pull();
 		memcpy(labels.data, oclLabels.Buffer().data(), sizeof(TLabel) * labels.total());
+		labels = labels(cv::Rect(0, 0, pixels.cols, pixels.rows));
 		
 		return watch_.getTime() * 1000;
 	}
@@ -163,26 +164,17 @@ namespace LabelingTools
 		THROW_IF(pixels.dims != 3, "IOCLLabeling3D::Label : Input image is not a 3D image");
 		THROW_IF(coh != TCoherence::COH_DEFAULT, "IOCLLabeling3D::Label : Only default coherence is supported for 3D labeling");
 
-		int sz[3]; 
-
-		PlaneIterator itPix(pixels);
+		int sz[3]; 		
 
 		for (int i = 0; i < pixels.dims; ++i)
 			sz[i] = (pixels.size[i] >> 5 << 5) + 32; // 32 is NVidia specific (try 64 for AMD)
 		
 		auto binImg = TImage(3, sz, CV_8U, cv::Scalar(0));
-		PlaneIterator itBin(binImg);	
 
-		for (int i = 0; i < itPix.NPlanes(); ++i)
-		{
-			const TImage pixPlane = itPix.Plane();
-			TImage binPlane = itBin.Plane();
-
-			RGB2Gray(pixPlane).copyTo(binPlane(cv::Rect(0, 0, pixPlane.rows, pixPlane.cols)));
-
-			++itPix;
-			++itBin;
-		}
+		for (int k = 0; k < pixels.size[2]; ++k)
+			for (int j = 0; j < pixels.size[1]; ++j)
+				for (int i = 0; i < pixels.size[0]; ++i)
+					binImg.at<uchar>(i, j, k) = pixels.at<uchar>(i, j, k) > 128;
 
 		labels = cv::Mat::zeros(3, sz, CV_32SC1);
 

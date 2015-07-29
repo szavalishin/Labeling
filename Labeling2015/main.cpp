@@ -177,30 +177,31 @@ TImage Read3DImage(const std::string &inPath)
 		
 		TImage outIm, curIm;
 
-		PlaneIterator itPlanes;
-
+		int plane = 0;
 		for (auto fName : files)
 		{			
 			curIm = cv::imread(fName, cv::IMREAD_GRAYSCALE);
-
+			
 			if (curIm.empty()) 
 				continue;
 
 			if (outIm.empty()) 
 			{
 				int sz[] = {curIm.rows, curIm.cols, files.size()};
-				outIm = TImage(3, sz, CV_8U);
-
-				itPlanes.Init(outIm);
+				outIm.create(3, sz, CV_8U);
 			}
 			
 			if (curIm.rows != outIm.size[0] || curIm.cols != outIm.size[1]) {
 				throw std::exception("Cannot read 3D image: slice sizes do not match");
 			}
+
+			curIm = ILabeling::RGB2Gray(curIm);
 			
-			cv::Mat p = itPlanes.Plane();
-			curIm.copyTo(p);
-			++itPlanes;
+			for (int j = 0; j < curIm.size[1]; ++j)
+				for (int i = 0; i < curIm.size[0]; ++i)
+					outIm.at<uchar>(i, j, plane) = curIm.at<uchar>(i, j);
+			
+			++plane;
 		}
 
 		return outIm;
@@ -227,32 +228,37 @@ TImage Process3DImage(const TImage &inImg, const Options& opts, ImgTime& time)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-TLabel GetMaxLabel(const TImage &labels)
-{
-	TLabel maxLabel = 0;
+typedef std::set<TLabel> LabelSet;
+
+LabelSet GetAllLabels(const TImage &labels)
+{	
+	LabelSet labelSet;
+	labelSet.emplace(0);
+
 	for (size_t i = 0; i < labels.total(); ++i)
 	{
 		TLabel lb = labels.at<TLabel>(i);
-		if (lb > maxLabel) maxLabel = lb;
+		if (lb) labelSet.emplace(lb);
 	}
 
-	return maxLabel;
+	return labelSet;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-typedef std::vector<std::array<uchar, 3>> ColorMap;
+typedef std::map<TLabel, std::array<uchar, 3>> ColorMap;
 
-void UpdateColorMap(ColorMap &colorMap, TLabel maxLabel)
+void UpdateColorMap(ColorMap &colorMap, LabelSet labels)
 {	
-	size_t oldSize = colorMap.size();
-	colorMap.resize(maxLabel + 1);
+	auto cmEnd = colorMap.end();
 
-	for (size_t i = oldSize; i < maxLabel + 1; ++i)
+	for (auto l : labels)
 	{
-		colorMap[i][0] = std::rand();
-		colorMap[i][1] = std::rand();
-		colorMap[i][2] = std::rand();
+		if (colorMap.find(l) == cmEnd)
+		{
+			std::array<uchar, 3> color = { std::rand(), std::rand(), std::rand() };
+			colorMap.emplace(l, color);
+		}
 	}
 
 	colorMap[0][0] = 0;
@@ -263,11 +269,8 @@ void UpdateColorMap(ColorMap &colorMap, TLabel maxLabel)
 ///////////////////////////////////////////////////////////////////////////////
 
 TImage LabelsToRGB(const TImage &labels, ColorMap& colorMap = ColorMap())
-{	
-	TLabel maxLabel = GetMaxLabel(labels);
-
-	if (colorMap.size() < maxLabel + 1)
-		UpdateColorMap(colorMap, maxLabel);
+{		
+	UpdateColorMap(colorMap, GetAllLabels(labels));
 
 	TImage rgb(labels.rows, labels.cols, CV_8UC3);
 
@@ -287,13 +290,16 @@ void Write3DLabels(const TImage &labels, const std::string outPath)
 {
 	create_directories(outPath);
 
-	PlaneIterator itPlanes(labels);
 	ColorMap colorMap;
+	auto outLabels = TImage(labels.size[0], labels.size[1], CV_32S);
 
-	for (int i = 0; i < labels.size[2]; ++i)
+	for (int plane = 0; plane < labels.size[2]; ++plane)
 	{		
-		cv::imwrite(outPath + '/' + std::to_string(i) + ".png", LabelsToRGB(itPlanes.Plane(), colorMap));
-		++itPlanes;
+		for (int j = 0; j < labels.size[1]; ++j)
+			for (int i = 0; i < labels.size[0]; ++i)
+				outLabels.at<uint>(i, j) = labels.at<uint>(i, j, plane);
+
+		cv::imwrite(outPath + '/' + std::to_string(plane + 1) + ".png", LabelsToRGB(outLabels, colorMap));
 	}
 }
 

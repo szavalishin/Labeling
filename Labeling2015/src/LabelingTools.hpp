@@ -52,35 +52,6 @@ namespace LabelingTools
 	const char MAX_THREADS = 0;
 
 	///////////////////////////////////////////////////////////////////////////////
-
-	struct PlaneIterator final
-	{
-		PlaneIterator(void) = default;
-		PlaneIterator(const TImage &im3d) { Init(im3d); }
-
-		void Init(const TImage &im3d) {
-			THROW_IF(im3d.dims != 3, "PlaneIterator::PlaneIterator : Input image is not a 3D image");
-			arrays[0] = &im3d;
-			arrays[1] = nullptr;
-			it_ = std::make_shared<cv::NAryMatIterator>(arrays, planes, 1);
-		}
-
-		int NPlanes(void) { return it_->nplanes; }
-		TImage Plane(void) { return it_->planes[0]; }
-
-		PlaneIterator& operator++(void) { ++*it_; return *this; }
-		PlaneIterator operator++(int) { return operator++(); }
-
-	private:
-		std::shared_ptr<cv::NAryMatIterator> it_;
-		cv::Mat planes[1];
-		const cv::Mat* arrays[2];
-		
-		PlaneIterator operator=(const PlaneIterator&) = delete;
-		PlaneIterator(const PlaneIterator&) = default;
-	};	
-
-	///////////////////////////////////////////////////////////////////////////////
 	// ILabeling definition (basic labeling algorithm class)
 	///////////////////////////////////////////////////////////////////////////////
 
@@ -92,7 +63,7 @@ namespace LabelingTools
 		// Call to start labeling
 		virtual TTime Label(const TImage& pixels, TImage& labels, char threads = MAX_THREADS, TCoherence coh = TCoherence::COH_DEFAULT);
 
-		TImage RGB2Gray(const TImage& img) const;
+		static TImage RGB2Gray(const TImage& img);
 
 	protected:
 		StopWatchWin watch_;
