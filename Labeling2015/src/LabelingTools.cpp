@@ -175,7 +175,7 @@ namespace LabelingTools
 			for (int j = 0; j < pixels.size[1]; ++j)
 				for (int i = 0; i < pixels.size[0]; ++i)
 					binImg.at<uchar>(i, j, k) = pixels.at<uchar>(i, j, k) > 128;
-
+		
 		labels = cv::Mat::zeros(3, sz, CV_32SC1);
 
 		// Initialization

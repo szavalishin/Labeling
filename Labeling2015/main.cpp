@@ -174,6 +174,7 @@ TImage Read3DImage(const std::string &inPath)
 	if (is_directory(inPath))
 	{
 		auto files = FindFiles(inPath);
+		files.sort();
 		
 		TImage outIm, curIm;
 

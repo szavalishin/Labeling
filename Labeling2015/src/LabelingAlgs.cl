@@ -610,5 +610,110 @@ __kernel void Bin3D_LabelingKernel(
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+// TOCLLabelDistribution3D kernels
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ3D_InitKernel(
+	__global TPixel	*pixels,	// Intermediate buffers
+	__global TLabel	*labels		// Image labels
+	)
+{
+	const size_t pos = get_global_id(0);
+	labels[pos] = pixels[pos] ? pos + 1 : 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+TLabel GetLabel3D(__global TLabel *labels, int x, int y, int z, size_t w, size_t h, size_t d) {
+	return 
+		x >= 0 && y >= 0 && z >=0 && x < w && y < h && z < d 
+		? labels[x * w * d + y * d + z]
+		: 0;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+TLabel Min3DLabel(__global TLabel *lb, int x, int y, int z, size_t w, size_t h, size_t d)
+{
+	return MinLabel(GetLabel3D(lb, x - 1, y, z, w, h, d), // Current slice
+		MinLabel(GetLabel3D(lb, x - 1, y - 1, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y - 1, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y - 1, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y + 1, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y + 1, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x - 1, y + 1, z, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y, z - 1, w, h, d), // Upper slice
+		MinLabel(GetLabel3D(lb, x - 1, y, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x - 1, y - 1, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x, y - 1, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x + 1, y - 1, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x + 1, y, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x + 1, y + 1, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x, y + 1, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x - 1, y + 1, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y, z + 1, w, h, d), // Lower slice
+		MinLabel(GetLabel3D(lb, x - 1, y, z + 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x - 1, y - 1, z + 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x, y - 1, z + 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x + 1, y - 1, z + 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x + 1, y, z + 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x + 1, y + 1, z + 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x, y + 1, z + 1, w, h, d), 
+		         GetLabel3D(lb, x - 1, y + 1, z + 1, w, h, d)))))))))))))))))))))))))); 
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ3D_ScanKernel(
+	__global TLabel	*labels,	// Image labels	
+	__global char	*noChanges	// Shows if no pixels were changed
+	)
+{
+	const size_t x = get_global_id(0);
+	const size_t y = get_global_id(1);
+	const size_t z = get_global_id(2);
+
+	const size_t w = get_global_size(0);
+	const size_t h = get_global_size(1);
+	const size_t d = get_global_size(2);
+
+	const size_t pos = x * w * d + y * d + z; // OpenCV address style
+	TLabel label = labels[pos];
+
+	if (label)
+	{
+		TLabel minLabel = Min3DLabel(labels, x, y, z, w, h, d);
+
+		if (minLabel < label)
+		{
+			TLabel tmpLabel = labels[label - 1];
+			labels[label - 1] = min(tmpLabel, minLabel);
+			*noChanges = 0;
+		}
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void LBEQ3D_AnalyzeKernel(__global TLabel *labels)
+{
+	const size_t pos = get_global_id(0);
+
+	TLabel label = labels[pos];
+
+	if (label){
+		TLabel curLabel = labels[label - 1];
+		while (curLabel != label)
+		{
+			label = labels[curLabel - 1];
+			curLabel = labels[label - 1];
+		}
+
+		labels[pos] = label;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
 
 #endif /* LABELING_ALGS_CL_ */
