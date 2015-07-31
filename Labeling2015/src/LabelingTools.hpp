@@ -143,6 +143,8 @@ namespace LabelingTools
 	class IOCLLabeling3D : public IOCLLabeling
 	{
 	public:
+		char imAlign; // Specifies default image alignment (default is 32, for Nvidia)
+
 		using IOCLLabeling::Initialized;
 		using IOCLLabeling::State;
 
@@ -151,7 +153,7 @@ namespace LabelingTools
 		// Call to start labeling
 		virtual TTime Label(const TImage& pixels, TImage& labels, char threads = MAX_THREADS, TCoherence coh = TCoherence::COH_DEFAULT) override;
 
-		IOCLLabeling3D(void) = default;
+		IOCLLabeling3D(void) : imAlign(32) { /* Empty */ };
 		~IOCLLabeling3D(void) = default;
 
 	protected:		
@@ -163,6 +165,9 @@ namespace LabelingTools
 
 		// Write your kernel finalization code here
 		virtual void FreeKernels(void) {}; // Used in destructor, that's why non-pure virtual
+
+		template <typename CPP_TYPE, int CV_TYPE>
+			TImage CopyAlignImg(const TImage &im, uchar padding = 2, uchar align = 5) const;
 
 	private:		
 		IOCLLabeling3D(const IOCLLabeling3D&) = delete;

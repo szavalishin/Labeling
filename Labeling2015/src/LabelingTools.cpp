@@ -157,6 +157,26 @@ namespace LabelingTools
 	// IOCLLabeling3D declaration
 	///////////////////////////////////////////////////////////////////////////////
 
+	template <typename CPP_TYPE, int CV_TYPE>
+		TImage IOCLLabeling3D::CopyAlignImg(const TImage &im, uchar padding, uchar align) const
+		{
+			int sz[3];
+			for (int i = 0; i < im.dims; ++i)
+				sz[i] = ((im.size[i] + padding * 2) >> align << align) + (2 << align);
+
+			auto outIm = TImage(3, sz, CV_TYPE, cv::Scalar(0));
+
+			const int shift = padding >> 1;
+			for (int k = 0; k < im.size[2]; ++k)
+				for (int j = 0; j < im.size[1]; ++j)
+					for (int i = 0; i < im.size[0]; ++i)
+						outIm.at<CPP_TYPE>(i + padding, j + padding, k + padding) = im.at<CPP_TYPE>(i, j, k) > 128;
+
+			return outIm;
+		}
+
+	///////////////////////////////////////////////////////////////////////////////
+
 	TTime IOCLLabeling3D::Label(const TImage& pixels, TImage& labels, char threads, TCoherence coh)
 	{
 		THROW_IF(!Initialized, "IOCLLabeling3D::Label : OpenCL device is not initialized");
@@ -164,19 +184,16 @@ namespace LabelingTools
 		THROW_IF(pixels.dims != 3, "IOCLLabeling3D::Label : Input image is not a 3D image");
 		THROW_IF(coh != TCoherence::COH_DEFAULT, "IOCLLabeling3D::Label : Only default coherence is supported for 3D labeling");
 
-		int sz[3]; 		
-
-		for (int i = 0; i < pixels.dims; ++i)
-			sz[i] = (pixels.size[i] >> 5 << 5) + 32; // 32 is NVidia specific (try 64 for AMD)
+		const uchar padding = 2;
+		auto log2i = [](uchar x)
+		{
+			uchar r = 0; 
+			while (x >>= 1) ++r; 
+			return r;
+		};
 		
-		auto binImg = TImage(3, sz, CV_8U, cv::Scalar(0));
-
-		for (int k = 0; k < pixels.size[2]; ++k)
-			for (int j = 0; j < pixels.size[1]; ++j)
-				for (int i = 0; i < pixels.size[0]; ++i)
-					binImg.at<uchar>(i, j, k) = pixels.at<uchar>(i, j, k) > 128;
-		
-		labels = cv::Mat::zeros(3, sz, CV_32SC1);
+		TImage binImg = CopyAlignImg<uchar, CV_8U>(pixels, padding, log2i(imAlign));
+		labels = cv::Mat::zeros(3, binImg.size, CV_32SC1);
 
 		// Initialization
 		TOCLBuffer<TPixel> oclPixels(*this, TOCLBufferType::READ_ONLY, binImg.total());

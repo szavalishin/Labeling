@@ -118,12 +118,12 @@ void InitAlgs(void)
 												&std::make_shared<TLabelDistribution>, 
 												&std::make_shared<TOCLLabelDistribution, bool>, 
 												nullptr, 
-												&std::make_shared<TOCLLabelDistribution3D, bool> });
+												&std::make_shared<TOCLLabelEquivalence3D, bool> });
 	ALG_LIST.emplace(std::string("bleq"), Algs{ "Block equivalence by Zavalishin et.al.", 
 												&std::make_shared<TLabelEquivalenceX2>, 
 												std::make_shared<TOCLLabelEquivalenceX2, bool>, 
 												nullptr, 
-												nullptr/*std::make_shared<TOCLLabelEquivalenceX2, bool>*/ });
+												std::make_shared<TOCLBlockEquivalence3D, bool> });
 	ALG_LIST.emplace(std::string("runeq"), Algs{ "Run equivalence by Zavalishin et.al.", 
 												&std::make_shared<TRunEqivLabeling>, 
 												&std::make_shared<TOCLRunEquivLabeling, bool>, 

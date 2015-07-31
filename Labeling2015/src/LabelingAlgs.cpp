@@ -1308,10 +1308,10 @@ namespace LabelingTools
 	}
 
 	///////////////////////////////////////////////////////////////////////////////
-	// TOCLLabelDistribution3D declaration
+	// TOCLLabelEquivalence3D declaration
 	///////////////////////////////////////////////////////////////////////////////
 
-	TOCLLabelDistribution3D::TOCLLabelDistribution3D(bool runOnGPU)
+	TOCLLabelEquivalence3D::TOCLLabelEquivalence3D(bool runOnGPU)
 		: initKernel(NULL),
 		  scanKernel(NULL),
 		  analyzeKernel(NULL)
@@ -1327,7 +1327,7 @@ namespace LabelingTools
 
 	///////////////////////////////////////////////////////////////////////////////
 
-	void TOCLLabelDistribution3D::InitKernels(void)
+	void TOCLLabelEquivalence3D::InitKernels(void)
 	{
 		cl_int clError;
 
@@ -1340,7 +1340,7 @@ namespace LabelingTools
 
 	///////////////////////////////////////////////////////////////////////////////
 
-	void TOCLLabelDistribution3D::FreeKernels(void)
+	void TOCLLabelEquivalence3D::FreeKernels(void)
 	{
 		if (initKernel)		clReleaseKernel(initKernel);
 		if (scanKernel)		clReleaseKernel(scanKernel);
@@ -1349,7 +1349,7 @@ namespace LabelingTools
 
 	///////////////////////////////////////////////////////////////////////////////
 
-	void TOCLLabelDistribution3D::DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, uint imgWidth, uint imgHeight, uint imgDepth)
+	void TOCLLabelEquivalence3D::DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, uint imgWidth, uint imgHeight, uint imgDepth)
 	{
 		cl_int clError;
 		size_t const workSize[] = { imgWidth, imgHeight, imgDepth };
@@ -1383,6 +1383,146 @@ namespace LabelingTools
 
 			clError |= clEnqueueNDRangeKernel(State.queue, analyzeKernel, 1, NULL, &workSizeLine, NULL, 0, NULL, NULL);
 		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+	// TOCLBlockEquivalence3D declaration
+	///////////////////////////////////////////////////////////////////////////////
+
+	TOCLBlockEquivalence3D::TOCLBlockEquivalence3D(bool runOnGPU)
+		: initKernel(NULL),
+		scanKernel(NULL),
+		analyzeKernel(NULL),
+		setFinalLabelsKernel(NULL)
+	{
+		cl_device_type devType;
+		if (runOnGPU)
+			devType = CL_DEVICE_TYPE_GPU;
+		else
+			devType = CL_DEVICE_TYPE_CPU;
+
+		Init(devType, "", "LabelingAlgs.cl");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::InitKernels(void)
+	{
+		cl_int clError;
+
+		initKernel = clCreateKernel(State.program, "BLEQ3D_Init", &clError);
+		scanKernel = clCreateKernel(State.program, "BLEQ3D_Scan", &clError);
+		analyzeKernel = clCreateKernel(State.program, "BLEQ3D_Analyze", &clError);
+		setFinalLabelsKernel = clCreateKernel(State.program, "BLEQ3D_SetFinalLabels", &clError);
+
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::InitKernels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::FreeKernels(void)
+	{
+		if (initKernel)				clReleaseKernel(initKernel);
+		if (scanKernel)				clReleaseKernel(scanKernel);
+		if (analyzeKernel)			clReleaseKernel(analyzeKernel);
+		if (setFinalLabelsKernel)	clReleaseKernel(setFinalLabelsKernel);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::InitSPixels(void)
+	{
+		cl_int clError;
+
+		spWidth = imgWidth >> 1;
+		spHeight = imgHeight >> 1;
+		spDepth = imgDepth >> 1;
+
+		sLabels = clCreateBuffer(State.context, CL_MEM_READ_WRITE, sizeof(TLabel) * spHeight * spWidth * spDepth, NULL, &clError);
+		sConn = clCreateBuffer(State.context, CL_MEM_READ_WRITE, sizeof(int) * spHeight * spWidth * spDepth, NULL, &clError);
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::InitSPixels");
+
+		clError  = clSetKernelArg(initKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
+		clError |= clSetKernelArg(initKernel, 1, sizeof(cl_mem), (void*)&sLabels);
+		clError |= clSetKernelArg(initKernel, 2, sizeof(cl_mem), (void*)&sConn);
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::InitSPixels");
+
+		const size_t workSize[] = { spWidth, spHeight, spDepth };
+		clError = clEnqueueNDRangeKernel(State.queue, initKernel, 3, NULL, workSize, NULL, 0, NULL, NULL);
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::InitSPixels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::LabelSPixels(void)
+	{
+		cl_int clError;
+		const size_t scanWorkSize[] = { spWidth, spHeight, spDepth };		
+		const size_t analyzeWorkSize[] = { scanWorkSize[0] * scanWorkSize[1] * scanWorkSize[2] };
+
+		TOCLBuffer<char> noChanges(*this, WRITE_ONLY, 1);
+
+		clError = clSetKernelArg(scanKernel, 0, sizeof(cl_mem), (void*)&sLabels);
+		clError |= clSetKernelArg(scanKernel, 1, sizeof(cl_mem), (void*)&sConn);
+		clError |= clSetKernelArg(scanKernel, 2, sizeof(cl_mem), (void*)&noChanges.buffer);
+		clError |= clSetKernelArg(analyzeKernel, 0, sizeof(cl_mem), (void*)&sLabels);
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::LabelSPixels");
+		
+		while (true) {
+			noChanges[0] = 1;
+			noChanges.Push();
+
+			clError |= clEnqueueNDRangeKernel(State.queue, scanKernel, 3, NULL, scanWorkSize, NULL, 0, NULL, NULL);
+
+			noChanges.Pull();
+			if (noChanges[0]) break;
+
+			clError |= clEnqueueNDRangeKernel(State.queue, analyzeKernel, 1, NULL, analyzeWorkSize, NULL, 0, NULL, NULL);
+		}
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::SetFinalLabels(void)
+	{
+		cl_int clError;
+		size_t workSize[] = { imgWidth, imgHeight, imgDepth };
+
+		clError = clSetKernelArg(setFinalLabelsKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
+		clError |= clSetKernelArg(setFinalLabelsKernel, 1, sizeof(cl_mem), (void*)&lb->buffer);
+		clError |= clSetKernelArg(setFinalLabelsKernel, 2, sizeof(cl_mem), (void*)&sLabels);
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::SetFinalLabels");
+
+		clError |= clEnqueueNDRangeKernel(State.queue, setFinalLabelsKernel, 3, NULL, workSize, NULL, 0, NULL, NULL);
+		THROW_IF_OCL(clError, "TOCLBlockEquivalence3D::SetFinalLabels");
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::FreeSPixels(void)
+	{
+		clReleaseMemObject(sLabels);
+		clReleaseMemObject(sConn);
+	}
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	void TOCLBlockEquivalence3D::DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels,
+												uint imWidth, uint imHeight, uint imDepth)
+	{		
+		cl_int clError;
+
+		pix = &pixels;
+		lb = &labels;
+
+		imgWidth = imWidth;
+		imgHeight = imHeight;
+		imgDepth = imDepth;
+
+		InitSPixels();
+		LabelSPixels();
+		SetFinalLabels();
+		FreeSPixels();
 	}
 
 	///////////////////////////////////////////////////////////////////////////////

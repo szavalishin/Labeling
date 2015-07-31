@@ -169,10 +169,10 @@ __kernel void LBEQ2_Init(
 
 	char conn = 0;
 
-	// 2 3 4 5
-	// 1 a b 6
-	// 0 d c 7
-	// B A 9 8
+	// 2  3   4  5
+	// 1 (A) (B) 6
+	// 0 (D) (C) 7
+	// B  A   9  8
 	ushort testPattern = 0;
 	if (pixels[ppos])										testPattern = CheckNeibPixABC(px, py);
 	if (px + 1 < w && pixels[ppos + 1])						testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
@@ -625,9 +625,9 @@ __kernel void LBEQ3D_InitKernel(
 ///////////////////////////////////////////////////////////////////////////////
 
 TLabel GetLabel3D(__global TLabel *labels, int x, int y, int z, size_t w, size_t h, size_t d) {
-	return 
-		x >= 0 && y >= 0 && z >=0 && x < w && y < h && z < d 
-		? labels[x * w * d + y * d + z]
+	return
+		x >= 0 && y >= 0 && z >= 0 && x < w && y < h && z < d
+		? labels[x * h * d + y * d + z]
 		: 0;
 }
 
@@ -644,23 +644,23 @@ TLabel Min3DLabel(__global TLabel *lb, int x, int y, int z, size_t w, size_t h, 
 		MinLabel(GetLabel3D(lb, x, y + 1, z, w, h, d),
 		MinLabel(GetLabel3D(lb, x - 1, y + 1, z, w, h, d),
 		MinLabel(GetLabel3D(lb, x, y, z - 1, w, h, d), // Upper slice
-		MinLabel(GetLabel3D(lb, x - 1, y, z - 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x - 1, y - 1, z - 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x, y - 1, z - 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x + 1, y - 1, z - 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x + 1, y, z - 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x + 1, y + 1, z - 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x, y + 1, z - 1, w, h, d), 
+		MinLabel(GetLabel3D(lb, x - 1, y, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x - 1, y - 1, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y - 1, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y - 1, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y + 1, z - 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y + 1, z - 1, w, h, d),
 		MinLabel(GetLabel3D(lb, x - 1, y + 1, z - 1, w, h, d),
 		MinLabel(GetLabel3D(lb, x, y, z + 1, w, h, d), // Lower slice
-		MinLabel(GetLabel3D(lb, x - 1, y, z + 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x - 1, y - 1, z + 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x, y - 1, z + 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x + 1, y - 1, z + 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x + 1, y, z + 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x + 1, y + 1, z + 1, w, h, d), 
-		MinLabel(GetLabel3D(lb, x, y + 1, z + 1, w, h, d), 
-		         GetLabel3D(lb, x - 1, y + 1, z + 1, w, h, d)))))))))))))))))))))))))); 
+		MinLabel(GetLabel3D(lb, x - 1, y, z + 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x - 1, y - 1, z + 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y - 1, z + 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y - 1, z + 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y, z + 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x + 1, y + 1, z + 1, w, h, d),
+		MinLabel(GetLabel3D(lb, x, y + 1, z + 1, w, h, d),
+		GetLabel3D(lb, x - 1, y + 1, z + 1, w, h, d))))))))))))))))))))))))));
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -678,7 +678,7 @@ __kernel void LBEQ3D_ScanKernel(
 	const size_t h = get_global_size(1);
 	const size_t d = get_global_size(2);
 
-	const size_t pos = x * w * d + y * d + z; // OpenCV address style
+	const size_t pos = x * h * d + y * d + z; // OpenCV address style
 	TLabel label = labels[pos];
 
 	if (label)
@@ -711,6 +711,251 @@ __kernel void LBEQ3D_AnalyzeKernel(__global TLabel *labels)
 		}
 
 		labels[pos] = label;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// TOCLBlockEquivalence3D kernels
+///////////////////////////////////////////////////////////////////////////////
+
+// Voxel layout in search block:
+//
+//    Slice 1:      Slice 2:           Slice 3:           Slice 4:
+//
+//    0  1  2  3    10  11   12  13    20  21   22  23    30  31  32  33    
+//    4  5  6  7    14 (A1) (B1) 17    24 (A2) (B2) 27    34  35  36  37
+//    8  9  A  B    18 (D1) (C1) 1B    28 (D2) (C2) 2B    38  39  3A  3B    
+//    C  D  E  F    1C  1D   1E  1F    2C  2D   2E  2F    3C  3D  3E  3F
+//
+
+#define SPT3D 0x77707770777l // Search pattern for pixel A1
+#define BPT3D(X, Y, Z) ( SPT3D << (X) << (4 * (Y)) << (16 * (Z)) ) // Search for (x, y) pixel
+
+#define CHECK_VOXEL(X, Y, Z) \
+	if (pixels[ppos + (X) * psz[1] * psz[2] + (Y) * psz[2] + (Z)]) testPattern |= BPT3D((X), (Y), (Z));
+
+#define CHECK_SLICE_3D(Z) \
+	CHECK_VOXEL(0, 0, (Z)) \
+	CHECK_VOXEL(1, 0, (Z)) \
+	CHECK_VOXEL(0, 1, (Z)) \
+	CHECK_VOXEL(1, 1, (Z))
+
+// Super voxel layout:
+//
+//   Slice 1:      Slice 2:       Slice 3:
+//
+//   0  1  2       9   A   B      12  13  14
+//   3  4  5       C  (X)  E      15  16  17
+//   6  7  8       F  10  11      18  19  1A
+
+#define TEST_VOXEL(C, PX, PY, PZ) \
+	( testPattern & 1 << (C) && pixels[ppos + (PX) * psz[1] * psz[2] + (PY) * psz[2] + (PZ)] )
+
+#define TEST_VOXEL2(C1, C2, PX1, PY1, PZ1, PX2, PY2, PZ2) \
+	TEST_VOXEL(C1, PX1, PY1, PZ1) || TEST_VOXEL(C2, PX2, PY2, PZ2)
+
+#define TEST_CONN1(B, C, PX, PY, PZ) \
+	if (TEST_VOXEL((C), (PX), (PY), (PZ))) \
+		conn |= 1 << (B);
+
+#define TEST_CONN2(B, C1, C2, PX1, PY1, PZ1, PX2, PY2, PZ2) \
+	if (TEST_VOXEL2(C1, C2, PX1, PY1, PZ1, PX2, PY2, PZ2)) \
+		conn |= 1 << (B);
+
+#define TEST_CONN4(B, C1, C2, C3, C4, PX1, PY1, PZ1, PX2, PY2, PZ2, PX3, PY3, PZ3, PX4, PY4, PZ4) \
+	if (TEST_VOXEL2(C1, C2, PX1, PY1, PZ1, PX2, PY2, PZ2) || \
+		TEST_VOXEL2(C3, C4, PX3, PY3, PZ3, PX4, PY4, PZ4)) \
+		conn |= 1 << (B);
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline long RemoveBorderBlocks(long pattern, const int *sp, const size_t *ssz)
+{
+	if (sp[0] == 0)			 pattern &= 0xEEEEEEEEEEEEEEEEl;
+	if (sp[1] == 0)			 pattern &= 0xFFF0FFF0FFF0FFF0l;
+	if (sp[2] == 0)			 pattern &= 0xFFFFFFFFFFFF0000l;
+	if (sp[0] == ssz[0] - 1) pattern &= 0x7777777777777777l;
+	if (sp[1] == ssz[1] - 1) pattern &= 0x0FFF0FFF0FFF0FFFl;
+	if (sp[2] == ssz[2] - 1) pattern &= 0x0000FFFFFFFFFFFFl;
+
+	return pattern;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void BLEQ3D_Init(
+	__global const TPixel *pixels, // Image voxels		
+	__global TLabel *sLabels,	   // Super labels
+	__global int *sConn	 		   // Super voxel connectivity
+	)
+{
+	const int sp[] = { get_global_id(0), get_global_id(1), get_global_id(2) };
+	const int pp[] = { sp[0] << 1, sp[1] << 1, sp[2] << 1 };
+	const size_t ssz[] = { get_global_size(0), get_global_size(1), get_global_size(2) };
+	const size_t psz[] = { ssz[0] << 1, ssz[1] << 1, ssz[2] << 1 };
+
+	int spos = sp[0] * ssz[1] * ssz[2] + sp[1] * ssz[2] + sp[2]; // Super pixel position	
+	int ppos = pp[0] * psz[1] * psz[2] + pp[1] * psz[2] + pp[2];
+
+	int conn = 0;
+	long testPattern = 0;
+
+	CHECK_SLICE_3D(0);
+	CHECK_SLICE_3D(1);
+
+	testPattern = RemoveBorderBlocks(testPattern, sp, ssz);
+
+	if (testPattern) {
+		sLabels[spos] = spos + 1;
+
+		//            B    C1    C2    C3    C4    PX1 PY1 PZ1  PX2 PY2 PZ2  PX3 PY3 PZ3  PX3 PY3 PZ3
+		TEST_CONN1(  0,     0,                     -1, -1, -1);                                        // Slice 1
+		TEST_CONN2(  1,     1,    2,                0, -1, -1,   1, -1, -1);
+		TEST_CONN1(  2,     3,                      2, -1, -1);
+		TEST_CONN2(  3,     4,    8,               -1,  0, -1,  -1,  1, -1);
+		TEST_CONN4(  4,     5,    6,    9,  0xA,    0,  0, -1,   1,  0, -1,   0,  1, -1,   1,  1, -1);
+		TEST_CONN2(  5,     7,  0xB,                2,  0, -1,   2,  1, -1);
+		TEST_CONN1(  6,   0xC,                     -1,  2, -1);
+		TEST_CONN2(  7,   0xD,  0xE,                0,  2, -1,   1,  2, -1);
+		TEST_CONN1(  8,   0xF,                      2,  2, -1);
+		TEST_CONN2(  9,  0x10, 0x20,               -1, -1,  0,  -1, -1,  1);                           // Slice 2
+		TEST_CONN4(0xA,  0x11, 0x12, 0x21, 0x22,    0, -1,  0,   1, -1,  0,   0, -1,  1,   1, -1,  1);
+		TEST_CONN2(0xB,  0x13, 0x23,                2, -1,  0,   2, -1,  1);
+		TEST_CONN4(0xC,  0x14, 0x18, 0x24, 0x28,   -1,  0,  0,  -1,  1,  0,  -1,  0,  1,  -1,  1,  1);
+		TEST_CONN4(0xE,  0x17, 0x1B, 0x27, 0x2B,    2,  0,  0,   2,  1,  0,   2,  0,  1,   2,  1,  1);
+		TEST_CONN2(0xF,  0x1C, 0x2C,               -1,  2,  0,  -1,  2,  1);
+		TEST_CONN4(0x10, 0x1D, 0x1E, 0x2D, 0x2E,    0,  2,  0,   1,  2,  0,   0,  2,  1,   1,  2,  1);
+		TEST_CONN2(0x11, 0x1F, 0x2F,                2,  2,  0,   2,  2,  1);
+		TEST_CONN1(0x12, 0x30,                     -1, -1,  2);                                        // Slice 3
+		TEST_CONN2(0x13, 0x31, 0x32,                0, -1,  2,   1, -1,  2);
+		TEST_CONN1(0x14, 0x33,                      2, -1,  2);
+		TEST_CONN2(0x15, 0x34, 0x38,               -1,  0,  2,  -1,  1,  2);
+		TEST_CONN4(0x16, 0x35, 0x36, 0x39, 0x3A,    0,  0,  2,   1,  0,  2,   0,  1,  2,   1,  1,  2);
+		TEST_CONN2(0x17, 0x37, 0x3B,                2,  0,  2,   2,  1,  2);
+		TEST_CONN1(0x18, 0x3C,                     -1,  2,  2);
+		TEST_CONN2(0x19, 0x3D, 0x3E,                0,  2,  2,   1,  2,  2);
+		TEST_CONN1(0x1A, 0x3F,                      2,  2,  2);
+	}
+
+	sConn[spos] = conn;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline TLabel GetBlockLabel3D(__global const TLabel *sLabels, bool conn,
+	int x, int y, int z, int w, int h, int d)
+{
+	return conn ? sLabels[x * h * d + y * d + z] : UINT_MAX;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+TLabel MinSPixLabel3D(__global const TLabel *sLabels, int conn, int x, int y, int z, int w, int h, int d)
+{
+	return  min(GetBlockLabel3D(sLabels, conn & 1 <<    0, x - 1, y - 1, z - 1, w, h, d), // Slice 1
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    1, x    , y - 1, z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    2, x + 1, y - 1, z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    3, x - 1, y    , z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    4, x    , y    , z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    5, x + 1, y    , z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    6, x - 1, y + 1, z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    7, x    , y + 1, z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    8, x + 1, y + 1, z - 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<    9, x - 1, y - 1, z    , w, h, d), // Slice 2
+			min(GetBlockLabel3D(sLabels, conn & 1 <<  0xA, x    , y - 1, z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<  0xB, x + 1, y - 1, z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<  0xC, x - 1, y    , z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<  0xE, x + 1, y    , z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 <<  0xF, x - 1, y + 1, z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x10, x    , y + 1, z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x11, x + 1, y + 1, z    , w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x12, x - 1, y - 1, z + 1, w, h, d), // Slice 3
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x13, x    , y - 1, z + 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x14, x + 1, y - 1, z + 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x15, x - 1, y    , z + 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x16, x    , y    , z + 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x17, x + 1, y    , z + 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x18, x - 1, y + 1, z + 1, w, h, d),
+			min(GetBlockLabel3D(sLabels, conn & 1 << 0x19, x    , y + 1, z + 1, w, h, d),
+				GetBlockLabel3D(sLabels, conn & 1 << 0x1A, x + 1, y + 1, z + 1, w, h, d))))))))))))))))))))))))));
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void BLEQ3D_Scan(
+	__global TLabel *sLabels,	// Super labels
+	__global int *sConn,		// Super pixels connectivity	
+	__global char *noChanges	// Shows if no pixels were changed
+	)
+{
+	const int spx = get_global_id(0);
+	const int spy = get_global_id(1);
+	const int spz = get_global_id(2);
+
+	const size_t spw = get_global_size(0);
+	const size_t sph = get_global_size(1);
+	const size_t spd = get_global_size(2);
+
+	const size_t spos = spx * sph * spd + spy * spd + spz;
+
+	TLabel label = sLabels[spos];
+	int conn = sConn[spos];
+
+	if (label) {
+		TLabel minLabel = MinSPixLabel3D(sLabels, conn, spx, spy, spz, spw, sph, spd);
+
+		if (minLabel < label) {
+			TLabel tmpLabel = sLabels[label - 1];
+			sLabels[label - 1] = min(tmpLabel, minLabel);
+			*noChanges = 0;
+		}
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void BLEQ3D_Analyze(__global TLabel *sLabels)
+{
+	const size_t sPos = get_global_id(0);
+
+	TLabel label = sLabels[sPos];
+
+	if (label){
+		TLabel curLabel = sLabels[label - 1];
+		while (curLabel != label)
+		{
+			label = sLabels[curLabel - 1];
+			curLabel = sLabels[label - 1];
+		}
+
+		sLabels[sPos] = label;
+	}
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+__kernel void BLEQ3D_SetFinalLabels(
+	__global TPixel *pixels,
+	__global TLabel *labels,
+	__global TLabel *sLabels
+	)
+{
+	const int x = get_global_id(0);
+	const int y = get_global_id(1);
+	const int z = get_global_id(2);
+
+	const size_t w = get_global_size(0);
+	const size_t h = get_global_size(1);
+	const size_t d = get_global_size(2);
+
+	const size_t sph = h >> 1;
+	const size_t spd = d >> 1;
+
+	const size_t spos = (x >> 1) * sph * spd + (y >> 1) * spd + (z >> 1);
+	const size_t pos = x * h * d + y * d + z;
+
+	if (pixels[pos]) {
+		labels[pos] = sLabels[spos];
 	}
 }
 

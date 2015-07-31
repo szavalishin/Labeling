@@ -333,13 +333,13 @@ namespace LabelingTools
 	};
 
 	///////////////////////////////////////////////////////////////////////////////
-	// TOCLLabelDistribution3D :: OCL Label Equivalence algorithm for 3D images
+	// TOCLLabelEquivalence3D :: OCL Label Equivalence algorithm for 3D images
 	///////////////////////////////////////////////////////////////////////////////
 
-	class TOCLLabelDistribution3D final : public IOCLLabeling3D
+	class TOCLLabelEquivalence3D final : public IOCLLabeling3D
 	{
 	public:
-		TOCLLabelDistribution3D(bool runOnGPU = true);
+		TOCLLabelEquivalence3D(bool runOnGPU = true);
 
 	private:
 		cl_kernel initKernel,
@@ -349,7 +349,44 @@ namespace LabelingTools
 		virtual void InitKernels(void) override;
 		virtual void FreeKernels(void) override;
 
-		void DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, uint imgWidth, uint imgHeight, uint imgDepth) override;
+		void DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, 
+			uint imgWidth, uint imgHeight, uint imgDepth) override;
+	};
+
+	///////////////////////////////////////////////////////////////////////////////
+	// TOCLBlockEquivalence3D :: OCL Block Equivalence for 3D images
+	///////////////////////////////////////////////////////////////////////////////
+
+	class TOCLBlockEquivalence3D final : public IOCLLabeling3D
+	{
+	public:
+		TOCLBlockEquivalence3D(bool runOnGPU = true);
+
+	private:
+		cl_kernel initKernel,
+			scanKernel,
+			analyzeKernel,
+			setFinalLabelsKernel;
+
+		TOCLBuffer<TPixel> *pix;
+		TOCLBuffer<TLabel> *lb;
+
+		cl_mem sLabels, sConn;
+
+		unsigned int 
+			imgWidth, imgHeight, imgDepth, 
+			spWidth, spHeight, spDepth;
+
+		virtual void InitKernels(void) override;
+		virtual void FreeKernels(void) override;
+
+		void InitSPixels(void);
+		void LabelSPixels(void);
+		void SetFinalLabels(void);
+		void FreeSPixels(void);
+
+		void DoOCLLabel3D(TOCLBuffer<TPixel> &pixels, TOCLBuffer<TLabel> &labels, 
+			uint imgWidth, uint imgHeight, uint imgDepth) override;
 	};
 
 } /* LabelingTools */
