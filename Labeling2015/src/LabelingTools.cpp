@@ -162,7 +162,7 @@ namespace LabelingTools
 		{
 			int sz[3];
 			for (int i = 0; i < im.dims; ++i)
-				sz[i] = ((im.size[i] + padding * 2) >> align << align) + (2 << align);
+				sz[i] = ((im.size[i] + padding * 2) >> align << align) + (2 << align - 1);
 
 			auto outIm = TImage(3, sz, CV_TYPE, cv::Scalar(0));
 
@@ -170,7 +170,7 @@ namespace LabelingTools
 			for (int k = 0; k < im.size[2]; ++k)
 				for (int j = 0; j < im.size[1]; ++j)
 					for (int i = 0; i < im.size[0]; ++i)
-						outIm.at<CPP_TYPE>(i + padding, j + padding, k + padding) = im.at<CPP_TYPE>(i, j, k) > 128;
+						outIm.at<CPP_TYPE>(i + padding, j + padding, k + padding) = im.at<CPP_TYPE>(i, j, k);
 
 			return outIm;
 		}

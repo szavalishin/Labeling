@@ -728,8 +728,8 @@ __kernel void LBEQ3D_AnalyzeKernel(__global TLabel *labels)
 //    C  D  E  F    1C  1D   1E  1F    2C  2D   2E  2F    3C  3D  3E  3F
 //
 
-#define SPT3D 0x77707770777l // Search pattern for pixel A1
-#define BPT3D(X, Y, Z) ( SPT3D << (X) << (4 * (Y)) << (16 * (Z)) ) // Search for (x, y) pixel
+#define SPT3D 0x77707770777ul // Search pattern for pixel A1
+#define BPT3D(X, Y, Z) ( SPT3D << (X) << (4 * (Y)) << (16 * (Z)) ) // Search pattern for (x, y) pixel
 
 #define CHECK_VOXEL(X, Y, Z) \
 	if (pixels[ppos + (X) * psz[1] * psz[2] + (Y) * psz[2] + (Z)]) testPattern |= BPT3D((X), (Y), (Z));
@@ -749,7 +749,7 @@ __kernel void LBEQ3D_AnalyzeKernel(__global TLabel *labels)
 //   6  7  8       F  10  11      18  19  1A
 
 #define TEST_VOXEL(C, PX, PY, PZ) \
-	( testPattern & 1 << (C) && pixels[ppos + (PX) * psz[1] * psz[2] + (PY) * psz[2] + (PZ)] )
+	( testPattern & 1ul << (C) && pixels[ppos + (PX) * psz[1] * psz[2] + (PY) * psz[2] + (PZ)] )
 
 #define TEST_VOXEL2(C1, C2, PX1, PY1, PZ1, PX2, PY2, PZ2) \
 	TEST_VOXEL(C1, PX1, PY1, PZ1) || TEST_VOXEL(C2, PX2, PY2, PZ2)
@@ -798,7 +798,7 @@ __kernel void BLEQ3D_Init(
 	int ppos = pp[0] * psz[1] * psz[2] + pp[1] * psz[2] + pp[2];
 
 	int conn = 0;
-	long testPattern = 0;
+	ulong testPattern = 0;
 
 	CHECK_SLICE_3D(0);
 	CHECK_SLICE_3D(1);
