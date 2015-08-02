@@ -448,6 +448,21 @@ Options ParseInput(int argc, char** argv)
 
 ///////////////////////////////////////////////////////////////////////////////
 
+void PrintTime(const std::string fileName, ImgTime &time, const Options &opts)
+{
+	cout << "Image: " << fileName.c_str() << std::endl;
+
+	if (opts.cycles == 1)
+		cout << "Processing time: " << float(time.Avg()) / 1000 << " ms" << std::endl;
+	else
+		cout << "Processing time:\n Min = " <<
+			float(time.Min()) / 1000 << "ms\n Avg = " <<
+			float(time.Avg()) / 1000 << "ms\n Max = " <<
+			float(time.Max()) / 1000 << "ms\n";
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 void Process2DImages(const Options &opts)
 {
 	if (is_directory(opts.inPath))
@@ -461,7 +476,7 @@ void Process2DImages(const Options &opts)
 		ImgTime time;
 		TImage im = ProcessImage(cv::imread(opts.inPath), opts, time);
 
-		cout << "Image: " << fileName.c_str() << "\nProcessing time: " << float(time.Avg()) / 1000 << " ms\n";
+		PrintTime(fileName, time, opts);
 
 		if (is_directory(opts.outPath))
 		{
@@ -484,7 +499,7 @@ void Process3DImages(const Options &opts)
 		ImgTime time;
 		TImage im = Process3DImage(Read3DImage(opts.inPath), opts, time);
 
-		cout << "Image: " << opts.inPath << "\nProcessing time: " << float(time.Avg()) / 1000 << " ms\n";
+		PrintTime(opts.inPath, time, opts);
 
 		if (is_directory(opts.outPath))
 		{

@@ -174,7 +174,7 @@ __kernel void LBEQ2_Init(
 	// 0 (D) (C) 7
 	// B  A   9  8
 	ushort testPattern = 0;
-	if (pixels[ppos])										testPattern = CheckNeibPixABC(px, py);
+	if (pixels[ppos])										testPattern  = CheckNeibPixABC(px, py);
 	if (px + 1 < w && pixels[ppos + 1])						testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
 	if (px + 1 < w && py + 1 < h && pixels[ppos + 1 + w])	testPattern |= CheckNeibPixABC(px + 2 < w, py + 2 < h) << 6;
 	if (py + 1 < h && pixels[ppos + w])						testPattern |= CheckNeibPixD(py + 2 < h, px);
