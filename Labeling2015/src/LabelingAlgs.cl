@@ -133,21 +133,42 @@ __kernel void DistrAnalizeKernel(__global TLabel *labels)
 // TOCLLabelEquivX2 kernels
 ///////////////////////////////////////////////////////////////////////////////
 
+// Pixel layout:
+//
+// 0  1   2  3
+// 4 (A) (B) 7
+// 8 (D) (C) B
+// C  D   E  F
+
+#define SPT 0x777u // Search pattern for pixel A1
+#define BPT(X, Y) ( SPT << (X) << (4 * (Y)) ) // Search pattern for (x, y) pixel
+
+#define CHECK_PIXEL(X, Y) \
+	if (pixels[ppos + (X) + (Y) * w]) testPattern |= BPT((X), (Y));
+
+///////////////////////////////////////////////////////////////////////////////
+
+inline uint RemoveBorderBlocks(uint pattern, int x, int y, int w, int h)
+{
+	if (x == 0)		pattern &= 0xEEEEu;
+	if (y == 0)		pattern &= 0xFFF0u;	
+	if (x == w - 1) pattern &= 0x7777u;
+	if (y == h - 1) pattern &= 0x0FFFu;	
+
+	return pattern;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+// Block layout:
+//
+// 0  1  2
+// 3 (X) 4
+// 5  6  7
+
 inline bool TestBit(__global const TPixel *pix, int px, int py, int xshift, int yshift, int w, int h)
 {
 	return pix[px + xshift + (py + yshift) * w];
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-inline ushort CheckNeibPixABC(bool C1, bool C2) {
-	return (C1 ? 3 : 0) | (C2 ? 0x18 : 0) | (C1 && C2) << 2;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-
-inline ushort CheckNeibPixD(bool C1, bool C2) {
-	return (C1 ? 3 : 0) << 9 | (C2 ? 3 : 0) | (C1 && C2) << 11;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -169,39 +190,37 @@ __kernel void LBEQ2_Init(
 
 	char conn = 0;
 
-	// 2  3   4  5
-	// 1 (A) (B) 6
-	// 0 (D) (C) 7
-	// B  A   9  8
-	ushort testPattern = 0;
-	if (pixels[ppos])										testPattern  = CheckNeibPixABC(px, py);
-	if (px + 1 < w && pixels[ppos + 1])						testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
-	if (px + 1 < w && py + 1 < h && pixels[ppos + 1 + w])	testPattern |= CheckNeibPixABC(px + 2 < w, py + 2 < h) << 6;
-	if (py + 1 < h && pixels[ppos + w])						testPattern |= CheckNeibPixD(py + 2 < h, px);
+	uint testPattern = 0;
+	CHECK_PIXEL(0, 0);
+	CHECK_PIXEL(0, 1);
+	CHECK_PIXEL(1, 0);
+	CHECK_PIXEL(1, 1);
+
+	testPattern = RemoveBorderBlocks(testPattern, px, py, w, h);
 
 	if (testPattern) {
 		sLabels[spos] = spos + 1;
 
-		if ((testPattern & 1 << 0 && TestBit(pixels, px, py, -1, 1, w, h)) ||
-			(testPattern & 1 << 1 && TestBit(pixels, px, py, -1, 0, w, h)))
+		if ((testPattern & 1        && TestBit(pixels, px, py, -1, -1, w, h)))
 			conn = 1;
-		if ((testPattern & 1 << 2 && TestBit(pixels, px, py, -1, -1, w, h)))
-			conn |= 1 << 1;
-		if ((testPattern & 1 << 3 && TestBit(pixels, px, py, 0, -1, w, h)) ||
-			(testPattern & 1 << 4 && TestBit(pixels, px, py, 1, -1, w, h)))
-			conn |= 1 << 2;
-		if ((testPattern & 1 << 5 && TestBit(pixels, px, py, 2, -1, w, h)))
-			conn |= 1 << 3;
-		if ((testPattern & 1 << 6 && TestBit(pixels, px, py, 2, 0, w, h)) ||
-			(testPattern & 1 << 7 && TestBit(pixels, px, py, 2, 1, w, h)))
-			conn |= 1 << 4;
-		if ((testPattern & 1 << 8 && TestBit(pixels, px, py, 2, 2, w, h)))
-			conn |= 1 << 5;
-		if ((testPattern & 1 << 9 && TestBit(pixels, px, py, 1, 2, w, h)) ||
-			(testPattern & 1 << 10 && TestBit(pixels, px, py, 0, 2, w, h)))
-			conn |= 1 << 6;
-		if ((testPattern & 1 << 11 && TestBit(pixels, px, py, -1, 2, w, h)))
-			conn |= 1 << 7;
+		if ((testPattern & 1 << 0x1 && TestBit(pixels, px, py,  0, -1, w, h)) ||
+			(testPattern & 1 << 0x2 && TestBit(pixels, px, py,  1, -1, w, h)))
+			conn |= 1 << 0x1;
+		if ((testPattern & 1 << 0x3 && TestBit(pixels, px, py,  2, -1, w, h)))
+			conn |= 1 << 0x2;
+		if ((testPattern & 1 << 0x4 && TestBit(pixels, px, py, -1,  0, w, h)) ||
+			(testPattern & 1 << 0x8 && TestBit(pixels, px, py, -1,  1, w, h)))
+			conn |= 1 << 0x3;	
+		if ((testPattern & 1 << 0x7 && TestBit(pixels, px, py,  2,  0, w, h)) ||
+			(testPattern & 1 << 0xB && TestBit(pixels, px, py,  2,  1, w, h)))
+			conn |= 1 << 0x4;
+		if ((testPattern & 1 << 0xC && TestBit(pixels, px, py, -1,  2, w, h)))
+			conn |= 1 << 0x5;
+		if ((testPattern & 1 << 0xD && TestBit(pixels, px, py,  0,  2, w, h)) ||
+			(testPattern & 1 << 0xE && TestBit(pixels, px, py,  1,  2, w, h)))
+			conn |= 1 << 0x6;
+		if ((testPattern & 1 << 0xF && TestBit(pixels, px, py,  2,  2, w, h)))
+			conn |= 1 << 0x7;
 	}
 
 	sConn[spos] = conn;
@@ -221,14 +240,14 @@ TLabel MinSPixLabel(__global const TLabel *sLabels, char conn, int x, int y, int
 {
 	TLabel minLabel;
 
-	minLabel = min(GetBlockLabel(sLabels, conn & 1 << 0, x, y, -1, 0, sWidth),
-		min(GetBlockLabel(sLabels, conn & 1 << 1, x, y, -1, -1, sWidth),
-		min(GetBlockLabel(sLabels, conn & 1 << 2, x, y, 0, -1, sWidth),
-		min(GetBlockLabel(sLabels, conn & 1 << 3, x, y, 1, -1, sWidth),
-		min(GetBlockLabel(sLabels, conn & 1 << 4, x, y, 1, 0, sWidth),
-		min(GetBlockLabel(sLabels, conn & 1 << 5, x, y, 1, 1, sWidth),
-		min(GetBlockLabel(sLabels, conn & 1 << 6, x, y, 0, 1, sWidth),
-		GetBlockLabel(sLabels, conn & 1 << 7, x, y, -1, 1, sWidth))))))));
+	minLabel = min(GetBlockLabel(sLabels, conn & 1 << 0x0, x, y, -1, -1, sWidth),
+		       min(GetBlockLabel(sLabels, conn & 1 << 0x1, x, y,  0, -1, sWidth),
+		       min(GetBlockLabel(sLabels, conn & 1 << 0x2, x, y,  1, -1, sWidth),
+		       min(GetBlockLabel(sLabels, conn & 1 << 0x3, x, y, -1,  0, sWidth),
+		       min(GetBlockLabel(sLabels, conn & 1 << 0x4, x, y,  1,  0, sWidth),
+		       min(GetBlockLabel(sLabels, conn & 1 << 0x5, x, y, -1,  1, sWidth),
+		       min(GetBlockLabel(sLabels, conn & 1 << 0x6, x, y,  0,  1, sWidth),
+		           GetBlockLabel(sLabels, conn & 1 << 0x7, x, y,  1,  1, sWidth))))))));
 
 	return minLabel;
 }
@@ -769,7 +788,7 @@ __kernel void LBEQ3D_AnalyzeKernel(__global TLabel *labels)
 
 ///////////////////////////////////////////////////////////////////////////////
 
-inline long RemoveBorderBlocks(long pattern, const int *sp, const size_t *ssz)
+inline long RemoveBorderBlocks3D(long pattern, const int *sp, const size_t *ssz)
 {
 	if (sp[0] == 0)			 pattern &= 0xEEEEEEEEEEEEEEEEl;
 	if (sp[1] == 0)			 pattern &= 0xFFF0FFF0FFF0FFF0l;
@@ -803,7 +822,7 @@ __kernel void BLEQ3D_Init(
 	CHECK_SLICE_3D(0);
 	CHECK_SLICE_3D(1);
 
-	testPattern = RemoveBorderBlocks(testPattern, sp, ssz);
+	testPattern = RemoveBorderBlocks3D(testPattern, sp, ssz);
 
 	if (testPattern) {
 		sLabels[spos] = spos + 1;

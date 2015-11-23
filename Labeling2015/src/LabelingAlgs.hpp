@@ -120,9 +120,9 @@ namespace LabelingTools
 	{
 		TLabel lb;		// Super pixel label
 		char conn;		// Super pixel neighbor connectivity:
-						// 1 2 3
-						// 0 x 4
-						// 7 6 5
+						// 0 1 2
+						// 3 x 4
+						// 5 6 7
 	} TSPixel;
 
 	class TLabelEquivalenceX2 final : public ILabeling

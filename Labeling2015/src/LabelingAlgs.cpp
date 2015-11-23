@@ -357,13 +357,27 @@ namespace LabelingTools
 		return pix[px + xshift + (py + yshift) * w];
 	}
 
-	inline ushort CheckNeibPixABC(bool C1, bool C2) {
-		return (C1 ? 3 : 0) | (C2 ? 0x18 : 0) | (C1 && C2) << 2;
+	///////////////////////////////////////////////////////////////////////////////
+
+	#define SPT 0x777u // Search pattern for pixel A1
+	#define BPT(X, Y) ( SPT << (X) << (4 * (Y)) ) // Search pattern for (x, y) pixel
+
+	#define CHECK_PIXEL(X, Y) \
+		if (pix[ppos + (X) + (Y) * w]) testPattern |= BPT((X), (Y));
+
+	///////////////////////////////////////////////////////////////////////////////
+
+	inline uint RemoveBorderBlocks(uint pattern, int x, int y, int w, int h)
+	{
+		if (x == 0)		pattern &= 0xEEEEu;
+		if (y == 0)		pattern &= 0xFFF0u;	
+		if (x == w - 1) pattern &= 0x7777u;
+		if (y == h - 1) pattern &= 0x0FFFu;	
+
+		return pattern;
 	}
 
-	inline ushort CheckNeibPixD(bool C1, bool C2) {
-		return (C1 ? 3 : 0) << 9 | (C2 ? 3 : 0) | (C1 && C2) << 11;
-	}
+	///////////////////////////////////////////////////////////////////////////////
 
 	TLabelEquivalenceX2::TSPixels TLabelEquivalenceX2::InitSPixels(const TImage& pixels)
 	{
@@ -380,39 +394,37 @@ namespace LabelingTools
 
 				TSPixel sPix = {0, 0};
 
-				// 2 3 4 5
-				// 1 a b 6
-				// 0 d c 7
-				// B A 9 8
 				ushort testPattern = 0;
-				if (pix[ppos])										testPattern  = CheckNeibPixABC(px, py);
-				if (px + 1 < w && pix[ppos + 1])					testPattern |= CheckNeibPixABC(py, px + 2 < w) << 3;
-				if (px + 1 < w && py + 1 < h && pix[ppos + 1 + w])	testPattern |= CheckNeibPixABC(px + 2 < w, py + 2 < h) << 6;
-				if (py + 1 < h && pix[ppos + w])					testPattern |= CheckNeibPixD(py + 2 < h, px);
+				CHECK_PIXEL(0, 0);
+				CHECK_PIXEL(0, 1);
+				CHECK_PIXEL(1, 0);
+				CHECK_PIXEL(1, 1);
+
+				testPattern = RemoveBorderBlocks(testPattern, px, py, w, h);
 
 				if (testPattern) {
 					sPix.lb = spos;
-
-					if ((testPattern & 1 << 0 && TestBit(pix, px, py, -1, 1, w, h)) ||
-						(testPattern & 1 << 1 && TestBit(pix, px, py, -1, 0, w, h)))
+					
+					if ((testPattern & 1        && TestBit(pix, px, py, -1, -1, w, h)))
 						sPix.conn = 1;
-					if ((testPattern & 1 << 2 && TestBit(pix, px, py, -1, -1, w, h)))
-						sPix.conn |= 1 << 1;
-					if ((testPattern & 1 << 3 && TestBit(pix, px, py, 0, -1, w, h)) ||
-						(testPattern & 1 << 4 && TestBit(pix, px, py, 1, -1, w, h)))
-						sPix.conn |= 1 << 2;
-					if ((testPattern & 1 << 5 && TestBit(pix, px, py, 2, -1, w, h)))
-						sPix.conn |= 1 << 3;
-					if ((testPattern & 1 << 6 && TestBit(pix, px, py, 2, 0, w, h)) ||
-						(testPattern & 1 << 7 && TestBit(pix, px, py, 2, 1, w, h)))
-						sPix.conn |= 1 << 4;
-					if ((testPattern & 1 << 8 && TestBit(pix, px, py, 2, 2, w, h)))
-						sPix.conn |= 1 << 5;
-					if ((testPattern & 1 << 9 && TestBit(pix, px, py, 1, 2, w, h)) ||
-						(testPattern & 1 << 10 && TestBit(pix, px, py, 0, 2, w, h)))
-						sPix.conn |= 1 << 6;
-					if ((testPattern & 1 << 11 && TestBit(pix, px, py, -1, 2, w, h)))
-						sPix.conn |= 1 << 7;
+					if ((testPattern & 1 << 0x1 && TestBit(pix, px, py,  0, -1, w, h)) ||
+						(testPattern & 1 << 0x2 && TestBit(pix, px, py,  1, -1, w, h)))
+						sPix.conn |= 1 << 0x1;
+					if ((testPattern & 1 << 0x3 && TestBit(pix, px, py,  2, -1, w, h)))
+						sPix.conn |= 1 << 0x2;
+					if ((testPattern & 1 << 0x4 && TestBit(pix, px, py, -1,  0, w, h)) ||
+						(testPattern & 1 << 0x8 && TestBit(pix, px, py, -1,  1, w, h)))
+						sPix.conn |= 1 << 0x3;	
+					if ((testPattern & 1 << 0x7 && TestBit(pix, px, py,  2,  0, w, h)) ||
+						(testPattern & 1 << 0xB && TestBit(pix, px, py,  2,  1, w, h)))
+						sPix.conn |= 1 << 0x4;
+					if ((testPattern & 1 << 0xC && TestBit(pix, px, py, -1,  2, w, h)))
+						sPix.conn |= 1 << 0x5;
+					if ((testPattern & 1 << 0xD && TestBit(pix, px, py,  0,  2, w, h)) ||
+						(testPattern & 1 << 0xE && TestBit(pix, px, py,  1,  2, w, h)))
+						sPix.conn |= 1 << 0x6;
+					if ((testPattern & 1 << 0xF && TestBit(pix, px, py,  2,  2, w, h)))
+						sPix.conn |= 1 << 0x7;
 				}
 
 				sPixels[spos] = sPix;
@@ -463,14 +475,14 @@ namespace LabelingTools
 		uchar conn = sPix[x + y * sPixels.w].conn;
 		int w = sPixels.w, h = sPixels.h;
 
-		minLabel = min(GetBlockLabel(sPix, conn & (1 << 0), x, y, -1, 0, w, h),
-			min(GetBlockLabel(sPix, conn & (1 << 1), x, y, -1, -1, w, h),
-			min(GetBlockLabel(sPix, conn & (1 << 2), x, y, 0, -1, w, h),
-			min(GetBlockLabel(sPix, conn & (1 << 3), x, y, 1, -1, w, h),
-			min(GetBlockLabel(sPix, conn & (1 << 4), x, y, 1, 0, w, h),
-			min(GetBlockLabel(sPix, conn & (1 << 5), x, y, 1, 1, w, h),
-			min(GetBlockLabel(sPix, conn & (1 << 6), x, y, 0, 1, w, h),
-			GetBlockLabel(sPix, conn & (1 << 7), x, y, -1, 1, w, h))))))));		
+		minLabel = min(GetBlockLabel(sPix, conn & 1 << 0x0, x, y, -1, -1, w, h),
+		       min(GetBlockLabel(sPix, conn & 1 << 0x1, x, y,  0, -1, w, h),
+		       min(GetBlockLabel(sPix, conn & 1 << 0x2, x, y,  1, -1, w, h),
+		       min(GetBlockLabel(sPix, conn & 1 << 0x3, x, y, -1,  0, w, h),
+		       min(GetBlockLabel(sPix, conn & 1 << 0x4, x, y,  1,  0, w, h),
+		       min(GetBlockLabel(sPix, conn & 1 << 0x5, x, y, -1,  1, w, h),
+		       min(GetBlockLabel(sPix, conn & 1 << 0x6, x, y,  0,  1, w, h),
+		           GetBlockLabel(sPix, conn & 1 << 0x7, x, y,  1,  1, w, h))))))));
 
 		return minLabel;
 	}
@@ -512,7 +524,7 @@ namespace LabelingTools
 				TLabel label = sPixels[sPos].lb;
 
 				if (pix[pos]) {
-					lb[pos] = label;
+					lb[pos] = label + 1;
 				}
 			}
 		}
@@ -1487,7 +1499,7 @@ namespace LabelingTools
 	{
 		cl_int clError;
 		size_t workSize[] = { imgWidth, imgHeight, imgDepth };
-
+		
 		clError = clSetKernelArg(setFinalLabelsKernel, 0, sizeof(cl_mem), (void*)&pix->buffer);
 		clError |= clSetKernelArg(setFinalLabelsKernel, 1, sizeof(cl_mem), (void*)&lb->buffer);
 		clError |= clSetKernelArg(setFinalLabelsKernel, 2, sizeof(cl_mem), (void*)&sLabels);
