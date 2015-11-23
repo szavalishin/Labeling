@@ -88,9 +88,9 @@ private:
 struct Algs
 {
 	const std::string descr;
-	const std::function<std::shared_ptr<ILabeling>(void)> cpu ;
+	const std::function<std::shared_ptr<ILabeling>(void)> cpu;
 	const std::function<std::shared_ptr<IOCLLabeling>(bool)> ocl;
-	const std::function<std::shared_ptr<ILabeling>(void)> cpu3d ;
+	const std::function<std::shared_ptr<ILabeling>(void)> cpu3d;
 	const std::function<std::shared_ptr<IOCLLabeling3D>(bool)> ocl3d;
 };
 
@@ -105,26 +105,26 @@ void InitAlgs(void)
 												&std::make_shared<TOCLBinLabeling, bool>, 
 												nullptr, 
 												&std::make_shared<TOCLBinLabeling3D, bool> });
-	ALG_LIST.emplace(std::string("he-run"), Algs{ "Run labeling by He et.al.", 
+	ALG_LIST.emplace(std::string("he-run"), Algs{ "Run labeling by He et.al. 2008", 
 												&std::make_shared<TRunLabeling>, 
 												nullptr, nullptr, nullptr });
-	ALG_LIST.emplace(std::string("gr-block"), Algs{ "Block labeling by Grana et.al.", 
+	ALG_LIST.emplace(std::string("gr-block"), Algs{ "Block labeling by Grana et.al. 2010", 
 												&std::make_shared<TBlockGranaLabeling>, 
 												nullptr, nullptr, nullptr });
 	ALG_LIST.emplace(std::string("ocv"), Algs{ "OpenCV labeling", 
 												&std::make_shared<TOpenCVLabeling>, 
 												nullptr, nullptr, nullptr });
-	ALG_LIST.emplace(std::string("lbeq"), Algs{ "Label equivalence by Kalentev et.al.", 
+	ALG_LIST.emplace(std::string("lbeq"), Algs{ "Label equivalence by Kalentev et.al. 2012", 
 												&std::make_shared<TLabelDistribution>, 
 												&std::make_shared<TOCLLabelDistribution, bool>, 
 												nullptr, 
 												&std::make_shared<TOCLLabelEquivalence3D, bool> });
-	ALG_LIST.emplace(std::string("bleq"), Algs{ "Block equivalence by Zavalishin et.al.", 
+	ALG_LIST.emplace(std::string("bleq"), Algs{ "Block equivalence by Zavalishin et.al. 2016", 
 												&std::make_shared<TLabelEquivalenceX2>, 
 												std::make_shared<TOCLLabelEquivalenceX2, bool>, 
 												nullptr, 
 												std::make_shared<TOCLBlockEquivalence3D, bool> });
-	ALG_LIST.emplace(std::string("runeq"), Algs{ "Run equivalence by Zavalishin et.al.", 
+	ALG_LIST.emplace(std::string("runeq"), Algs{ "Run equivalence by Bekhtin et.al. 2015", 
 												&std::make_shared<TRunEqivLabeling>, 
 												&std::make_shared<TOCLRunEquivLabeling, bool>, 
 												nullptr, nullptr });

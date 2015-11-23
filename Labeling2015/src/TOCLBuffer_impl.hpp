@@ -20,7 +20,7 @@ namespace LabelingTools
 			  buffer(deviceBuf)
 		{
 			memFlags =
-				bufType == READ_ONLY ? CL_MEM_READ_ONLY :
+				bufType == READ_ONLY  ? CL_MEM_READ_ONLY  :
 				bufType == WRITE_ONLY ? CL_MEM_WRITE_ONLY :
 				/* default */			CL_MEM_READ_WRITE;
 

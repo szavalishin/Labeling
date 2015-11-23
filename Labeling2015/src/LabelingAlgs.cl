@@ -84,11 +84,11 @@ TLabel MinNWSELabel(__global TLabel *lb, size_t lbPos, uint width, uint maxPos, 
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void DistrScanKernel(
-	__global TLabel	*labels,	// Image labels
-	uint	width,		// Image width
-	uint	height,		// Image height
-	TCoherence coh,	// CC coherence
-	__global char	*noChanges	// Shows if no pixels were changed
+	__global TLabel	*labels,     // Image labels
+	uint	width,               // Image width
+	uint	height,              // Image height
+	TCoherence coh,	             // CC coherence
+	__global char	*noChanges   // Shows if no pixels were changed
 	)
 {
 	const size_t pos = get_global_id(0);
@@ -140,7 +140,7 @@ __kernel void DistrAnalizeKernel(__global TLabel *labels)
 // 8 (D) (C) B
 // C  D   E  F
 
-#define SPT 0x777u // Search pattern for pixel A1
+#define SPT 0x777u // Search pattern for pixel A
 #define BPT(X, Y) ( SPT << (X) << (4 * (Y)) ) // Search pattern for (x, y) pixel
 
 #define CHECK_PIXEL(X, Y) \
@@ -175,10 +175,10 @@ inline bool TestBit(__global const TPixel *pix, int px, int py, int xshift, int 
 
 __kernel void LBEQ2_Init(
 	__global const TPixel *pixels, // Image pixels		
-	__global TLabel *sLabels,	   // Super labels
+	__global TLabel *sLabels,      // Super labels
 	__global char *sConn,	 	   // Super pixels connectivity
-	uint w, // Image width
-	uint h  // Image height
+	uint w,                        // Image width
+	uint h                         // Image height
 	)
 {
 	int spx = get_global_id(0);
@@ -255,9 +255,9 @@ TLabel MinSPixLabel(__global const TLabel *sLabels, char conn, int x, int y, int
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void LBEQ2_Scan(
-	__global TLabel *sLabels,	// Super labels
-	__global char *sConn,		// Super pixels connectivity	
-	__global char *noChanges	// Shows if no pixels were changed
+	__global TLabel *sLabels,   // Super labels
+	__global char *sConn,       // Super pixels connectivity	
+	__global char *noChanges    // Shows if no pixels were changed
 	)
 {
 	const size_t spx = get_global_id(0);
@@ -337,7 +337,7 @@ typedef struct
 
 typedef struct
 {
-	TLabel lb;		// Run label
+	TLabel lb;      // Run label
 	uint l, r;		// Run l and r
 	TRunSize top;	// Top row tl and tr
 	TRunSize bot;	// Bottom row bl and br
@@ -357,10 +357,10 @@ __kernel void REInitRunsKernel(
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void REFindRunsKernel(
-	__global TPixel	*pixels,	// Image pixels
-	__global TRun	*runs,		// Image runs
-	__global uint  *runNum,    // Run count in row
-	uint	width		// Image width
+	__global TPixel	*pixels,    // Image pixels
+	__global TRun	*runs,      // Image runs
+	__global uint  *runNum,     // Run count in row
+	uint	width               // Image width
 	)
 {
 	const size_t row = get_global_id(0);
@@ -470,9 +470,9 @@ void FindNeib(__global TRun *curRun,
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void REFindNeibKernel(
-	__global TRun	*runs,	 // Intermediate buffers
-	__global uint   *runNum, // Run numer inside a row
-	uint	width	 // Image width
+	__global TRun	*runs,      // Intermediate buffers
+	__global uint   *runNum,    // Run numer inside a row
+	         uint	 width      // Image width
 	)
 {
 	const size_t row = get_global_id(0);
@@ -533,10 +533,10 @@ TLabel MinRunLabel(const __global TRun *runs, uint pos)
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void REScanKernel(
-	__global TRun	*runs,		// Image runs
+	__global TRun	*runs,      // Image runs
 	__global uint   *runNum,    // Run count inside a row
-	uint	width,		// Image width
-	__global char	*noChanges	// Shows if no pixels were changed
+	         uint    width,	    // Image width
+	__global char	*noChanges  // Shows if no pixels were changed
 	)
 {
 	const size_t row = get_global_id(0);
@@ -592,10 +592,10 @@ __kernel void REAnalizeKernel(
 ///////////////////////////////////////////////////////////////////////////////
 
 __kernel void RELabelKernel(
-	__global TRun	*runs,		// Image runs
-	__global uint	*runNum,	// Run count inside a row
-	__global TLabel	*labels,	// Image labels
-	uint	width		// Image width
+	__global TRun	*runs,      // Image runs
+	__global uint	*runNum,    // Run count inside a row
+	__global TLabel	*labels,    // Image labels
+	         uint    width      // Image width
 	)
 {
 	const size_t row = get_global_id(0);
@@ -654,32 +654,32 @@ TLabel GetLabel3D(__global TLabel *labels, int x, int y, int z, size_t w, size_t
 
 TLabel Min3DLabel(__global TLabel *lb, int x, int y, int z, size_t w, size_t h, size_t d)
 {
-	return MinLabel(GetLabel3D(lb, x - 1, y, z, w, h, d), // Current slice
-		MinLabel(GetLabel3D(lb, x - 1, y - 1, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y - 1, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y - 1, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y + 1, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y + 1, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x - 1, y + 1, z, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y, z - 1, w, h, d), // Upper slice
-		MinLabel(GetLabel3D(lb, x - 1, y, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x - 1, y - 1, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y - 1, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y - 1, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y + 1, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y + 1, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x - 1, y + 1, z - 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y, z + 1, w, h, d), // Lower slice
-		MinLabel(GetLabel3D(lb, x - 1, y, z + 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x - 1, y - 1, z + 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y - 1, z + 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y - 1, z + 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y, z + 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x + 1, y + 1, z + 1, w, h, d),
-		MinLabel(GetLabel3D(lb, x, y + 1, z + 1, w, h, d),
-		GetLabel3D(lb, x - 1, y + 1, z + 1, w, h, d))))))))))))))))))))))))));
+	return MinLabel(GetLabel3D(lb, x - 1, y    , z    , w, h, d), // Current slice
+		   MinLabel(GetLabel3D(lb, x - 1, y - 1, z    , w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y - 1, z    , w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y - 1, z    , w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y    , z    , w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y + 1, z    , w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y + 1, z    , w, h, d),
+	   	   MinLabel(GetLabel3D(lb, x - 1, y + 1, z    , w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y    , z - 1, w, h, d), // Upper slice
+		   MinLabel(GetLabel3D(lb, x - 1, y    , z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x - 1, y - 1, z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y - 1, z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y - 1, z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y    , z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y + 1, z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y + 1, z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x - 1, y + 1, z - 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y    , z + 1, w, h, d), // Lower slice
+		   MinLabel(GetLabel3D(lb, x - 1, y    , z + 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x - 1, y - 1, z + 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y - 1, z + 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y - 1, z + 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y    , z + 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x + 1, y + 1, z + 1, w, h, d),
+		   MinLabel(GetLabel3D(lb, x    , y + 1, z + 1, w, h, d),
+		            GetLabel3D(lb, x - 1, y + 1, z + 1, w, h, d))))))))))))))))))))))))));
 }
 
 ///////////////////////////////////////////////////////////////////////////////

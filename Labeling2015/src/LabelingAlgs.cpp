@@ -11,8 +11,6 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv/cv.h>
 
-//#pragma optimize("", off);
-
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace LabelingTools
@@ -1171,7 +1169,7 @@ namespace LabelingTools
 	{
 		cl_int clError;
 
-		// Find neibour runs
+		// Find neighbour runs
 		clError  = clSetKernelArg(findNeibKernel, 0, sizeof(cl_mem), (void*)&runs);
 		clError |= clSetKernelArg(findNeibKernel, 1, sizeof(cl_mem), (void*)&runNum);
 		clError |= clSetKernelArg(findNeibKernel, 2, sizeof(unsigned int), (void*)&width);
@@ -1224,7 +1222,7 @@ namespace LabelingTools
 	{
 		cl_int clError;
 
-		// Find neibour runs
+		// Find neighbour runs
 		clError  = clSetKernelArg(labelKernel, 0, sizeof(cl_mem), (void*)&runs);
 		clError |= clSetKernelArg(labelKernel, 1, sizeof(cl_mem), (void*)&runNum);
 		clError |= clSetKernelArg(labelKernel, 2, sizeof(cl_mem), (void*)&lb->buffer);
@@ -1540,5 +1538,3 @@ namespace LabelingTools
 	///////////////////////////////////////////////////////////////////////////////
 
 } /* LabelingTools */
-
-//#pragma optimize("", on);
